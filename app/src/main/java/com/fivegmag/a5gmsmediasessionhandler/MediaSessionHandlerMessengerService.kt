@@ -17,6 +17,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
+import com.fivegmag.a5gmscommonlibrary.models.M8Model
 import com.fivegmag.a5gmsmediasessionhandler.network.ServiceAccessInformationApi
 
 
@@ -72,7 +73,8 @@ class MediaSessionHandlerMessengerService() : Service() {
 
         private fun handleStatusMessage(msg: Message) {
             if (msg.obj != null) {
-                val state: String = msg.obj as String
+                val bundle: Bundle = msg.obj as Bundle
+                val state: String = bundle.getString("playbackState", "")
                 Toast.makeText(
                     applicationContext,
                     "Media Session Handler Service received state message: $state",
@@ -83,7 +85,8 @@ class MediaSessionHandlerMessengerService() : Service() {
 
         private fun handleStartPlaybackByProvisioningIdMessage(msg: Message) {
             if (msg.obj != null) {
-                val provisioningSessionId: String = msg.obj as String
+                val bundle: Bundle = msg.obj as Bundle
+                val provisioningSessionId: String = bundle.getString("provisioningSessionId", "")
                 val responseMessenger: Messenger = msg.replyTo
                 val call: Call<ServiceAccessInformation>? =
                     serviceAccessInformationApi.fetchServiceAccessInformation(provisioningSessionId)
@@ -110,7 +113,8 @@ class MediaSessionHandlerMessengerService() : Service() {
 
         private fun handleStartPlaybackByMediaPlayerEntryMessage(msg: Message) {
             if (msg.obj != null) {
-                val mediaPlayerEntry: String = msg.obj as String
+                val bundle: Bundle = msg.obj as Bundle
+                val mediaPlayerEntry: String = bundle.getString("mediaPlayerEntry", "")
                 val responseMessenger: Messenger = msg.replyTo
                 val provisioningSessionId: String? =
                     provisioningSessionIdLookupTable[mediaPlayerEntry]
@@ -142,13 +146,15 @@ class MediaSessionHandlerMessengerService() : Service() {
 
         private fun updateLookupTable(msg: Message) {
             if (msg.obj != null) {
-                val values: MutableList<ServiceAccessInformation> =
-                    msg.obj as MutableList<ServiceAccessInformation>
-                val iterator = values.iterator()
-                while (iterator.hasNext()) {
-                    val current: ServiceAccessInformation = iterator.next()
-                    provisioningSessionIdLookupTable[current.streamingAccess.mediaPlayerEntry] =
-                        current.provisioningSessionId
+                val bundle: Bundle = msg.obj as Bundle
+                val m8Model: M8Model? = bundle.getParcelable("m8Data")
+                val iterator = m8Model?.serviceAccessInformation?.iterator()
+                if (iterator != null) {
+                    while (iterator.hasNext()) {
+                        val current: ServiceAccessInformation = iterator.next()
+                        provisioningSessionIdLookupTable[current.streamingAccess.mediaPlayerEntry] =
+                            current.provisioningSessionId
+                    }
                 }
             }
         }
