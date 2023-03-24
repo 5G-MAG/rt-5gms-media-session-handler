@@ -6,11 +6,8 @@ import android.content.Intent
 import android.os.*
 import android.util.Log
 import android.widget.Toast
-import androidx.annotation.RequiresApi
-import com.fivegmag.a5gmscommonlibrary.helpers.ContentTypes
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
-import com.fivegmag.a5gmscommonlibrary.models.M8Model
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmsmediasessionhandler.network.ServiceAccessInformationApi
@@ -111,10 +108,7 @@ class MediaSessionHandlerMessengerService() : Service() {
 
                     val bundle = Bundle()
                     if (finalEntryPoints != null && finalEntryPoints.size > 0) {
-                        val dashEntryPoint: EntryPoint =
-                            finalEntryPoints.filter { entryPoint -> entryPoint.contentType == ContentTypes.DASH }
-                                .single()
-                        bundle.putParcelable("entryPoint", dashEntryPoint)
+                        bundle.putParcelableArrayList("entryPoints", finalEntryPoints)
                         msgResponse.data = bundle
                         responseMessenger.send(msgResponse)
                     }
