@@ -1,3 +1,12 @@
+/*
+License: 5G-MAG Public License (v1.0)
+Author: Daniel Silhavy
+Copyright: (C) 2023 Fraunhofer FOKUS
+For full license terms please see the LICENSE file distributed with this
+program. If this file is missing then the license can be retrieved from
+https://drive.google.com/file/d/1cinCiA778IErENZ3JN52VFW-1ffHpx7Z/view
+*/
+
 package com.fivegmag.a5gmsmediasessionhandler
 
 import android.app.Service
@@ -6,10 +15,10 @@ import android.content.Intent
 import android.os.*
 import android.util.Log
 import android.widget.Toast
-import androidx.annotation.RequiresApi
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
-import com.fivegmag.a5gmscommonlibrary.models.M8Model
+import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
+import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmsmediasessionhandler.network.ServiceAccessInformationApi
 import retrofit2.Call
 import retrofit2.Response
@@ -17,7 +26,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
 
-const val TAG ="5GMS Media Session Handler"
+const val TAG = "5GMS Media Session Handler"
 
 /**
  * Create a bound service when you want to interact with the service from activities and other components in your application
@@ -30,7 +39,6 @@ class MediaSessionHandlerMessengerService() : Service() {
      */
     private lateinit var mMessenger: Messenger
     private lateinit var serviceAccessInformationApi: ServiceAccessInformationApi
-    private val provisioningSessionIdLookupTable = mutableMapOf<String, String>()
     private lateinit var currentServiceAccessInformation: ServiceAccessInformation
 
     /** Keeps track of all current registered clients.  */
@@ -49,10 +57,9 @@ class MediaSessionHandlerMessengerService() : Service() {
                 SessionHandlerMessageTypes.REGISTER_CLIENT -> registerClient(msg)
                 SessionHandlerMessageTypes.UNREGISTER_CLIENT -> registerClient(msg)
                 SessionHandlerMessageTypes.STATUS_MESSAGE -> handleStatusMessage(msg)
-                SessionHandlerMessageTypes.START_PLAYBACK_BY_MEDIA_PLAYER_ENTRY_MESSAGE -> handleStartPlaybackByMediaPlayerEntryMessage(
+                SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE -> handleStartPlaybackByServiceListEntryMessage(
                     msg
                 )
-                SessionHandlerMessageTypes.UPDATE_LOOKUP_TABLE -> updateLookupTable(msg)
                 SessionHandlerMessageTypes.SET_M5_ENDPOINT -> setM5Endpoint(msg)
                 else -> super.handleMessage(msg)
             }
@@ -78,14 +85,16 @@ class MediaSessionHandlerMessengerService() : Service() {
 
         }
 
-        private fun handleStartPlaybackByMediaPlayerEntryMessage(msg: Message) {
+
+        private fun handleStartPlaybackByServiceListEntryMessage(msg: Message) {
             val bundle: Bundle = msg.data
-            val mediaPlayerEntry: String = bundle.getString("mediaPlayerEntry", "")
+            bundle.classLoader = ServiceListEntry::class.java.classLoader
+            val serviceListEntry: ServiceListEntry? = bundle.getParcelable("serviceListEntry")
             val responseMessenger: Messenger = msg.replyTo
-            val provisioningSessionId: String? =
-                provisioningSessionIdLookupTable[mediaPlayerEntry]
+            val provisioningSessionId: String = serviceListEntry!!.provisioningSessionId
             val call: Call<ServiceAccessInformation>? =
                 serviceAccessInformationApi.fetchServiceAccessInformation(provisioningSessionId)
+
             call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
                 override fun onResponse(
                     call: Call<ServiceAccessInformation?>,
@@ -99,35 +108,27 @@ class MediaSessionHandlerMessengerService() : Service() {
                         null,
                         SessionHandlerMessageTypes.SESSION_HANDLER_TRIGGERS_PLAYBACK
                     )
+                    var finalEntryPoints : ArrayList<EntryPoint>? = serviceListEntry.entryPoints
+                    if (finalEntryPoints == null || finalEntryPoints.size == 0) {
+                        finalEntryPoints =
+                            currentServiceAccessInformation.streamingAccess.entryPoints
+                    }
+
+
                     val bundle = Bundle()
-                    bundle.putString("mediaPlayerEntry", mediaPlayerEntry)
-                    msgResponse.data = bundle
-                    responseMessenger.send(msgResponse)
+                    if (finalEntryPoints != null && finalEntryPoints.size > 0) {
+                        bundle.putParcelableArrayList("entryPoints", finalEntryPoints)
+                        msgResponse.data = bundle
+                        responseMessenger.send(msgResponse)
+                    }
                 }
 
                 override fun onFailure(call: Call<ServiceAccessInformation?>, t: Throwable) {
                     call.cancel()
                 }
             })
-
         }
 
-        private fun updateLookupTable(msg: Message) {
-
-            val bundle: Bundle = msg.data
-            bundle.classLoader = M8Model::class.java.classLoader
-            val m8Model: M8Model? = bundle.getParcelable("m8Data")
-            val iterator = m8Model?.serviceAccessInformation?.iterator()
-            if (iterator != null) {
-                while (iterator.hasNext()) {
-                    val current: ServiceAccessInformation = iterator.next()
-                    provisioningSessionIdLookupTable[current.streamingAccess.mediaPlayerEntry] =
-                        current.provisioningSessionId
-                }
-            }
-
-
-        }
 
         private fun setM5Endpoint(msg: Message) {
             try {
