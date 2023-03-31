@@ -51,7 +51,7 @@ CQ30022U4R	device
 ````
 
 3. Install the `apk` on the target
-   device: `adb -s <deviceID> install -r app/build/outputs/apk/release/app-debug.apk`. Using `-r`
+   device: `adb -s <deviceID> install -r app/build/outputs/apk/debug/app-debug.apk`. Using `-r`
    we reinstall an existing app, keeping its data.
 
 ## Running
