@@ -133,10 +133,10 @@ class MediaSessionHandlerMessengerService() : Service() {
         private fun setM5Endpoint(msg: Message) {
             try {
                 val bundle: Bundle = msg.data
-                val m5Url: String? = bundle.getString("m5Url")
-                Log.i(TAG, "Setting M5 endpoint to $m5Url")
-                if (m5Url != null) {
-                    initializeRetrofitForServiceAccessInformation(m5Url)
+                val m5BaseUrl: String? = bundle.getString("m5BaseUrl")
+                Log.i(TAG, "Setting M5 endpoint to $m5BaseUrl")
+                if (m5BaseUrl != null) {
+                    initializeRetrofitForServiceAccessInformation(m5BaseUrl)
                 }
             } catch (e: Exception) {
             }
