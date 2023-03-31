@@ -28,7 +28,7 @@ git clone https://github.com/5G-MAG/rt-5gms-media-session-handler.git
 
 ## Building
 
-Call the following command in order to generate the `aar` bundles.
+Call the following command in order to generate the `apk` bundles.
 
 ````
 ./gradlew assemble
@@ -56,7 +56,7 @@ CQ30022U4R	device
 
 ## Running
 
-After installing the Media Session Handler application can be started from the Android selection
+After installing the Media Session Handler application can be started from the Android app selection
 screen.
 
 As an alternative we can also run the app from the command
