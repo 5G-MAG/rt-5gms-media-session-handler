@@ -1,4 +1,4 @@
-# 5G-MAG Reference Tools: 5GMS Common Library
+# 5G-MAG Reference Tools: 5GMS Media Session Handler 
 
 This repository holds the 5GMS Media Session Handler implementation of the 5G-MAG Reference Tools.
 
