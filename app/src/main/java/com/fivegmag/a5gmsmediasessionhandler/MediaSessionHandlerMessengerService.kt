@@ -42,7 +42,7 @@ class MediaSessionHandlerMessengerService() : Service() {
     private lateinit var currentServiceAccessInformation: ServiceAccessInformation
 
     /** Keeps track of all current registered clients.  */
-    var mClients = ArrayList<Messenger>()
+    var mClients = ArrayList<Int>()
 
     /**
      * Handler of incoming messages from clients.
@@ -66,11 +66,11 @@ class MediaSessionHandlerMessengerService() : Service() {
         }
 
         private fun registerClient(msg: Message) {
-            mClients.add(msg.replyTo)
+            mClients.add(msg.sendingUid)
         }
 
         private fun unregisterClient(msg: Message) {
-            mClients.remove(msg.replyTo)
+            mClients.remove(msg.sendingUid)
         }
 
         private fun handleStatusMessage(msg: Message) {
