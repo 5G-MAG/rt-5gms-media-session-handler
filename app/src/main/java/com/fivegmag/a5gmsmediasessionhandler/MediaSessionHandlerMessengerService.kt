@@ -42,7 +42,7 @@ class MediaSessionHandlerMessengerService() : Service() {
     private lateinit var currentServiceAccessInformation: ServiceAccessInformation
 
     /** Keeps track of all current registered clients.  */
-    var mClients = ArrayList<Messenger>()
+    var mClients = ArrayList<Int>()
 
     /**
      * Handler of incoming messages from clients.
@@ -66,11 +66,11 @@ class MediaSessionHandlerMessengerService() : Service() {
         }
 
         private fun registerClient(msg: Message) {
-            mClients.add(msg.replyTo)
+            mClients.add(msg.sendingUid)
         }
 
         private fun unregisterClient(msg: Message) {
-            mClients.remove(msg.replyTo)
+            mClients.remove(msg.sendingUid)
         }
 
         private fun handleStatusMessage(msg: Message) {
@@ -133,10 +133,10 @@ class MediaSessionHandlerMessengerService() : Service() {
         private fun setM5Endpoint(msg: Message) {
             try {
                 val bundle: Bundle = msg.data
-                val m5Url: String? = bundle.getString("m5Url")
-                Log.i(TAG, "Setting M5 endpoint to $m5Url")
-                if (m5Url != null) {
-                    initializeRetrofitForServiceAccessInformation(m5Url)
+                val m5BaseUrl: String? = bundle.getString("m5BaseUrl")
+                Log.i(TAG, "Setting M5 endpoint to $m5BaseUrl")
+                if (m5BaseUrl != null) {
+                    initializeRetrofitForServiceAccessInformation(m5BaseUrl)
                 }
             } catch (e: Exception) {
             }
