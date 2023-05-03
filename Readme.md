@@ -26,6 +26,21 @@ cd ~
 git clone https://github.com/5G-MAG/rt-5gms-media-session-handler.git
 ```
 
+## Install dependencies
+The 5GMSd Aware Application requires the [Common Android Library](https://github.com/5G-MAG/rt-5gms-common-android-library) to run.
+
+It is included as Maven dependencies in the `build.gradle`:
+
+````
+dependencies {
+   implementation 'com.fivegmag:a5gmscommonlibrary:1.0.0'
+}
+````
+
+To install the dependencies follow the  installation guides in the Readme documentation of the project. Make sure to publish it as a local Maven repository:
+
+* [Common Android Library](https://github.com/5G-MAG/rt-5gms-common-android-library#publish-to-local-maven-repository)
+
 ## Building
 
 Call the following command in order to generate the `apk` bundles.
