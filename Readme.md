@@ -1,4 +1,4 @@
-# 5G-MAG Reference Tools: 5GMSd Media Session Handler 
+# 5GMSd Media Session Handler 
 
 This repository holds the 5GMSd Media Session Handler implementation of the 5G-MAG Reference Tools.
 
