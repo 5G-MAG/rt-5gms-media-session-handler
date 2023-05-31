@@ -84,7 +84,7 @@ class MediaSessionHandlerMessengerService() : Service() {
 
         private fun handleStatusMessage(msg: Message) {
             val bundle: Bundle = msg.data as Bundle
-            val sendingUid = msg.sendingUid;
+            val sendingUid = msg.sendingUid
             val state: String = bundle.getString("playbackState", "")
             Toast.makeText(
                 applicationContext,
@@ -162,7 +162,7 @@ class MediaSessionHandlerMessengerService() : Service() {
             bundle.classLoader = SchemeSupport::class.java.classLoader
             val schemeSupport: ArrayList<SchemeSupport>? =
                 bundle.getParcelableArrayList("schemeSupport")
-            val sendingUid = msg.sendingUid;
+            val sendingUid = msg.sendingUid
             val clientMetricsReportingConfigurations: ArrayList<ClientMetricsReportingConfiguration>? =
                 clientsSessionData[sendingUid]?.serviceAccessInformation?.clientMetricsReportingConfigurations
 
@@ -241,7 +241,7 @@ class MediaSessionHandlerMessengerService() : Service() {
             val messenger = clientsSessionData[clientId]?.messenger
             bundle.putStringArrayList("metricsSchemes", metricsSchemes)
             msg.data = bundle
-            msg.replyTo = mMessenger;
+            msg.replyTo = mMessenger
             try {
                 messenger?.send(msg)
             } catch (e: RemoteException) {
