@@ -15,14 +15,18 @@ import android.content.Intent
 import android.os.*
 import android.util.Log
 import android.widget.Toast
+import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.models.*
+import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionModel
 import com.fivegmag.a5gmsmediasessionhandler.network.ServiceAccessInformationApi
 import retrofit2.Call
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import java.util.Date
+import java.util.*
+import kotlin.collections.ArrayList
+import kotlin.collections.HashMap
 
 
 const val TAG = "5GMS Media Session Handler"
@@ -40,14 +44,7 @@ class MediaSessionHandlerMessengerService() : Service() {
     private lateinit var serviceAccessInformationApi: ServiceAccessInformationApi
 
     /** Keeps track of all current registered clients.  */
-    private var clientsMessenger = HashMap<Int, Messenger>()
-
-    /** Metric timer for the different clients */
-    private var metricTimerForClients = HashMap<Int, Date>()
-
-    /** Save the current Service Access Information for each client **/
-    private var serviceAccessInformationForClients = HashMap<Int, ServiceAccessInformation>()
-
+    private var clientsSessionData = HashMap<Int, ClientSessionModel>()
 
     /**
      * Handler of incoming messages from clients.
@@ -74,22 +71,25 @@ class MediaSessionHandlerMessengerService() : Service() {
         }
 
         private fun registerClient(msg: Message) {
-            clientsMessenger[msg.sendingUid] = msg.replyTo
+            clientsSessionData[msg.sendingUid] = ClientSessionModel(msg.replyTo, null, LinkedList())
         }
 
         private fun unregisterClient(msg: Message) {
-            clientsMessenger.remove(msg.sendingUid)
-            metricTimerForClients.remove(msg.sendingUid)
+            clientsSessionData.remove(msg.sendingUid)
         }
 
         private fun handleStatusMessage(msg: Message) {
             val bundle: Bundle = msg.data as Bundle
+            val sendingUid = msg.sendingUid;
             val state: String = bundle.getString("playbackState", "")
             Toast.makeText(
                 applicationContext,
                 "Media Session Handler Service received state message: $state",
                 Toast.LENGTH_SHORT
             ).show()
+            when (state) {
+                PlayerStates.READY -> startMetricTimer(sendingUid)
+            }
         }
 
         private fun handleStartPlaybackByServiceListEntryMessage(msg: Message) {
@@ -102,13 +102,15 @@ class MediaSessionHandlerMessengerService() : Service() {
                 serviceAccessInformationApi.fetchServiceAccessInformation(provisioningSessionId)
             val sendingUid = msg.sendingUid;
 
+            resetClientSession(sendingUid)
+
             call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
                 override fun onResponse(
                     call: Call<ServiceAccessInformation?>,
                     response: Response<ServiceAccessInformation?>
                 ) {
                     val resource: ServiceAccessInformation = response.body() ?: return
-                    serviceAccessInformationForClients[sendingUid] = resource
+                    clientsSessionData[sendingUid]?.serviceAccessInformation = resource
 
                     // Trigger the playback by providing all available entry points
                     val msgResponse: Message = Message.obtain(
@@ -140,21 +142,81 @@ class MediaSessionHandlerMessengerService() : Service() {
             })
         }
 
+        private fun resetClientSession(clientId: Int) {
+            if(clientsSessionData[clientId] != null) {
+                Log.i(TAG,"Resetting information for client $clientId")
+                clientsSessionData[clientId]?.serviceAccessInformation = null
+                for (timer in clientsSessionData[clientId]?.metricReportingTimer!!) {
+                    timer.cancel()
+                }
+                clientsSessionData[clientId]?.metricReportingTimer?.clear()
+            }
+        }
+
         private fun handlePlaybackMetricsCapabilitiesMessage(msg: Message) {
             val bundle: Bundle = msg.data
             bundle.classLoader = SchemeSupport::class.java.classLoader
-            val schemeSupport: ArrayList<SchemeSupport>? = bundle.getParcelableArrayList("schemeSupport")
-            //TODO: For unsupported schemes: An error message shall be sent by the Media Session Handler to the appropriate network entity, indicating that metrics reporting for the indicated metrics scheme cannot be supported for this streaming service
+            val schemeSupport: ArrayList<SchemeSupport>? =
+                bundle.getParcelableArrayList("schemeSupport")
+            val sendingUid = msg.sendingUid;
+            val clientMetricReportingConfigurations: ArrayList<ClientMetricReportingConfiguration>? =
+                clientsSessionData[sendingUid]?.serviceAccessInformation?.clientMetricsReportingConfigurations
+
+            // Update our SAI with information about which scheme is supported. Later we only start an interval timer for the supported ones
+            if (clientMetricReportingConfigurations != null) {
+                for (clientMetricReportingConfiguration in clientMetricReportingConfigurations) {
+                    val schemeSupportedInfo =
+                        schemeSupport?.filter { it.scheme == clientMetricReportingConfiguration.scheme }
+                    if (schemeSupportedInfo != null) {
+                        clientMetricReportingConfiguration.isSchemeSupported =
+                            schemeSupportedInfo[0].supported
+                    }
+                }
+
+            }
+
             Toast.makeText(
                 applicationContext,
                 "Media Session Handler Service received scheme support message",
                 Toast.LENGTH_SHORT
             ).show()
+
+            //TODO: For unsupported schemes: An error message shall be sent by the Media Session Handler to the appropriate network entity, indicating that metrics reporting for the indicated metrics scheme cannot be supported for this streaming service
+
         }
 
 
         private fun startMetricTimer(clientId: Int) {
+            val clientMetricReportingConfigurations: ArrayList<ClientMetricReportingConfiguration>? =
+                clientsSessionData[clientId]?.serviceAccessInformation?.clientMetricsReportingConfigurations
 
+            if (clientMetricReportingConfigurations != null) {
+                for (clientMetricReportingConfiguration in clientMetricReportingConfigurations) {
+                    if (clientMetricReportingConfiguration.isSchemeSupported == true && clientMetricReportingConfiguration.reportingInterval != null && clientMetricReportingConfiguration.reportingInterval!! > 0) {
+                        val timer = Timer()
+                        timer.scheduleAtFixedRate(
+                            object : TimerTask() {
+                                override fun run() {
+                                    requestMetricsFromClient(
+                                        clientId,
+                                        clientMetricReportingConfiguration
+                                    )
+                                }
+                            },
+                            0,
+                            clientMetricReportingConfiguration.reportingInterval!!.times(1000)
+                        )
+                        clientsSessionData[clientId]?.metricReportingTimer?.add(timer)
+                    }
+                }
+            }
+
+
+            Toast.makeText(
+                applicationContext,
+                "Starting metric timer for client id: $clientId",
+                Toast.LENGTH_SHORT
+            ).show()
         }
 
         private fun requestMetricCapabilities(clientId: Int) {
@@ -164,7 +226,7 @@ class MediaSessionHandlerMessengerService() : Service() {
             )
             val bundle = Bundle()
             val clientMetricsReportingConfigurations: ArrayList<ClientMetricReportingConfiguration> =
-                serviceAccessInformationForClients[clientId]?.clientMetricsReportingConfigurations
+                clientsSessionData[clientId]?.serviceAccessInformation?.clientMetricsReportingConfigurations
                     ?: return
             val metricSchemes: ArrayList<String> = ArrayList()
             for (clientMetricReportingConfiguration in clientMetricsReportingConfigurations) {
@@ -173,7 +235,7 @@ class MediaSessionHandlerMessengerService() : Service() {
             if (metricSchemes.size == 0) {
                 return
             }
-            val messenger = clientsMessenger[clientId]
+            val messenger = clientsSessionData[clientId]?.messenger
             bundle.putStringArrayList("metricSchemes", metricSchemes)
             msg.data = bundle
             msg.replyTo = mMessenger;
@@ -197,8 +259,14 @@ class MediaSessionHandlerMessengerService() : Service() {
             }
         }
 
-        private fun requestMetricsFromClient() {
-
+        private fun requestMetricsFromClient(
+            clientId: Int,
+            clientMetricReportingConfiguration: ClientMetricReportingConfiguration
+        ) {
+            Log.i(
+                TAG,
+                "Request metrics for client $clientId and scheme ${clientMetricReportingConfiguration.scheme}"
+            )
         }
 
         private fun triggerEvent() {
