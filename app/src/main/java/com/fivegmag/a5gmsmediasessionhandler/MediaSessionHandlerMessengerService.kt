@@ -54,6 +54,10 @@ class MediaSessionHandlerMessengerService() : Service() {
         private val applicationContext: Context = context.applicationContext
     ) : Handler() {
 
+        /**
+         * Main function to handle all incoming messages from the Media Stream Handler and the 5GMSd Aware Application
+         * @param msg - Message by the sender
+         */
         override fun handleMessage(msg: Message) {
             when (msg.what) {
                 SessionHandlerMessageTypes.REGISTER_CLIENT -> registerClient(msg)
@@ -159,16 +163,16 @@ class MediaSessionHandlerMessengerService() : Service() {
             val schemeSupport: ArrayList<SchemeSupport>? =
                 bundle.getParcelableArrayList("schemeSupport")
             val sendingUid = msg.sendingUid;
-            val clientMetricReportingConfigurations: ArrayList<ClientMetricReportingConfiguration>? =
+            val clientMetricsReportingConfigurations: ArrayList<ClientMetricsReportingConfiguration>? =
                 clientsSessionData[sendingUid]?.serviceAccessInformation?.clientMetricsReportingConfigurations
 
             // Update our SAI with information about which scheme is supported. Later we only start an interval timer for the supported ones
-            if (clientMetricReportingConfigurations != null) {
-                for (clientMetricReportingConfiguration in clientMetricReportingConfigurations) {
+            if (clientMetricsReportingConfigurations != null) {
+                for (clientMetricsReportingConfiguration in clientMetricsReportingConfigurations) {
                     val schemeSupportedInfo =
-                        schemeSupport?.filter { it.scheme == clientMetricReportingConfiguration.scheme }
+                        schemeSupport?.filter { it.scheme == clientMetricsReportingConfiguration.scheme }
                     if (schemeSupportedInfo != null) {
-                        clientMetricReportingConfiguration.isSchemeSupported =
+                        clientMetricsReportingConfiguration.isSchemeSupported =
                             schemeSupportedInfo[0].supported
                     }
                 }
@@ -187,30 +191,29 @@ class MediaSessionHandlerMessengerService() : Service() {
 
 
         private fun startMetricTimer(clientId: Int) {
-            val clientMetricReportingConfigurations: ArrayList<ClientMetricReportingConfiguration>? =
+            val clientMetricsReportingConfigurations: ArrayList<ClientMetricsReportingConfiguration>? =
                 clientsSessionData[clientId]?.serviceAccessInformation?.clientMetricsReportingConfigurations
 
-            if (clientMetricReportingConfigurations != null) {
-                for (clientMetricReportingConfiguration in clientMetricReportingConfigurations) {
-                    if (clientMetricReportingConfiguration.isSchemeSupported == true && clientMetricReportingConfiguration.reportingInterval != null && clientMetricReportingConfiguration.reportingInterval!! > 0) {
+            if (clientMetricsReportingConfigurations != null) {
+                for (clientMetricsReportingConfiguration in clientMetricsReportingConfigurations) {
+                    if (clientMetricsReportingConfiguration.isSchemeSupported == true && clientMetricsReportingConfiguration.reportingInterval != null && clientMetricsReportingConfiguration.reportingInterval!! > 0) {
                         val timer = Timer()
                         timer.scheduleAtFixedRate(
                             object : TimerTask() {
                                 override fun run() {
                                     requestMetricsFromClient(
                                         clientId,
-                                        clientMetricReportingConfiguration
+                                        clientMetricsReportingConfiguration
                                     )
                                 }
                             },
                             0,
-                            clientMetricReportingConfiguration.reportingInterval!!.times(1000)
+                            clientMetricsReportingConfiguration.reportingInterval!!.times(1000)
                         )
                         clientsSessionData[clientId]?.metricReportingTimer?.add(timer)
                     }
                 }
             }
-
 
             Toast.makeText(
                 applicationContext,
@@ -225,18 +228,18 @@ class MediaSessionHandlerMessengerService() : Service() {
                 SessionHandlerMessageTypes.GET_PLAYBACK_METRIC_CAPABILITIES
             )
             val bundle = Bundle()
-            val clientMetricsReportingConfigurations: ArrayList<ClientMetricReportingConfiguration> =
+            val clientMetricsReportingConfigurations: ArrayList<ClientMetricsReportingConfiguration> =
                 clientsSessionData[clientId]?.serviceAccessInformation?.clientMetricsReportingConfigurations
                     ?: return
-            val metricSchemes: ArrayList<String> = ArrayList()
-            for (clientMetricReportingConfiguration in clientMetricsReportingConfigurations) {
-                metricSchemes.add(clientMetricReportingConfiguration.scheme)
+            val metricsSchemes: ArrayList<String> = ArrayList()
+            for (clientMetricsReportingConfiguration in clientMetricsReportingConfigurations) {
+                metricsSchemes.add(clientMetricsReportingConfiguration.scheme)
             }
-            if (metricSchemes.size == 0) {
+            if (metricsSchemes.size == 0) {
                 return
             }
             val messenger = clientsSessionData[clientId]?.messenger
-            bundle.putStringArrayList("metricSchemes", metricSchemes)
+            bundle.putStringArrayList("metricsSchemes", metricsSchemes)
             msg.data = bundle
             msg.replyTo = mMessenger;
             try {
@@ -261,11 +264,11 @@ class MediaSessionHandlerMessengerService() : Service() {
 
         private fun requestMetricsFromClient(
             clientId: Int,
-            clientMetricReportingConfiguration: ClientMetricReportingConfiguration
+            clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration
         ) {
             Log.i(
                 TAG,
-                "Request metrics for client $clientId and scheme ${clientMetricReportingConfiguration.scheme}"
+                "Request metrics for client $clientId and scheme ${clientMetricsReportingConfiguration.scheme}"
             )
         }
 
