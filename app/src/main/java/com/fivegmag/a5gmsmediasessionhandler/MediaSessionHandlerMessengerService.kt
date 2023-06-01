@@ -66,22 +66,40 @@ class MediaSessionHandlerMessengerService() : Service() {
                 SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE -> handleStartPlaybackByServiceListEntryMessage(
                     msg
                 )
+
                 SessionHandlerMessageTypes.SET_M5_ENDPOINT -> setM5Endpoint(msg)
                 SessionHandlerMessageTypes.REPORT_PLAYBACK_METRICS_CAPABILITIES -> handlePlaybackMetricsCapabilitiesMessage(
                     msg
                 )
+
                 else -> super.handleMessage(msg)
             }
         }
 
+        /**
+         * Callback that is triggered when a client is connected to the Media Session Handler.
+         * We save its messenger to be able to send messages to this client.
+         *
+         * @param msg
+         */
         private fun registerClient(msg: Message) {
             clientsSessionData[msg.sendingUid] = ClientSessionModel(msg.replyTo, null, LinkedList())
         }
 
+        /**
+         * Callback that is triggered when a client is disconnecting
+         *
+         * @param msg
+         */
         private fun unregisterClient(msg: Message) {
             clientsSessionData.remove(msg.sendingUid)
         }
 
+        /**
+         * Handles status messages coming from the Media Stream Handler
+         *
+         * @param msg
+         */
         private fun handleStatusMessage(msg: Message) {
             val bundle: Bundle = msg.data as Bundle
             val sendingUid = msg.sendingUid
@@ -96,6 +114,14 @@ class MediaSessionHandlerMessengerService() : Service() {
             }
         }
 
+        /**
+         * Handles the start playback message dispatched by the 5GMSd Aware Application. We get a
+         * ServiceListEntry as part of the message data from which we derive the
+         * provisioningSessionId. Afterwards we fetch the ServiceAccessInformation via M5 and return a list
+         * of entryPoints to the Media Stream Handler for playback
+         *
+         * @param msg
+         */
         private fun handleStartPlaybackByServiceListEntryMessage(msg: Message) {
             val bundle: Bundle = msg.data
             bundle.classLoader = ServiceListEntry::class.java.classLoader
@@ -146,17 +172,12 @@ class MediaSessionHandlerMessengerService() : Service() {
             })
         }
 
-        private fun resetClientSession(clientId: Int) {
-            if(clientsSessionData[clientId] != null) {
-                Log.i(TAG,"Resetting information for client $clientId")
-                clientsSessionData[clientId]?.serviceAccessInformation = null
-                for (timer in clientsSessionData[clientId]?.metricReportingTimer!!) {
-                    timer.cancel()
-                }
-                clientsSessionData[clientId]?.metricReportingTimer?.clear()
-            }
-        }
-
+        /**
+         * Handles an incoming metric capabilities message from the Media Stream Handler.
+         * We update the Service Access Information setting a supported flag for each metrics scheme
+         *
+         * @param msg
+         */
         private fun handlePlaybackMetricsCapabilitiesMessage(msg: Message) {
             val bundle: Bundle = msg.data
             bundle.classLoader = SchemeSupport::class.java.classLoader
@@ -189,7 +210,29 @@ class MediaSessionHandlerMessengerService() : Service() {
 
         }
 
+        /**
+         * Reset a client session once a new playback session is started. Remove the ServiceAccessInformation
+         * for the corresponding client id and reset all metric reporting timers.
+         *
+         * @param clientId
+         */
+        private fun resetClientSession(clientId: Int) {
+            if (clientsSessionData[clientId] != null) {
+                Log.i(TAG, "Resetting information for client $clientId")
+                clientsSessionData[clientId]?.serviceAccessInformation = null
+                for (timer in clientsSessionData[clientId]?.metricReportingTimer!!) {
+                    timer.cancel()
+                }
+                clientsSessionData[clientId]?.metricReportingTimer?.clear()
+            }
+        }
 
+
+        /**
+         * Start the timers to fetch the metrics for each supported metrics scheme.
+         *
+         * @param clientId
+         */
         private fun startMetricTimer(clientId: Int) {
             val clientMetricsReportingConfigurations: ArrayList<ClientMetricsReportingConfiguration>? =
                 clientsSessionData[clientId]?.serviceAccessInformation?.clientMetricsReportingConfigurations
@@ -222,6 +265,11 @@ class MediaSessionHandlerMessengerService() : Service() {
             ).show()
         }
 
+        /**
+         * Request the supported metrics from the Media Stream Handler
+         *
+         * @param clientId
+         */
         private fun requestMetricCapabilities(clientId: Int) {
             val msg: Message = Message.obtain(
                 null,
@@ -250,6 +298,11 @@ class MediaSessionHandlerMessengerService() : Service() {
         }
 
 
+        /**
+         * Set the M5 endpoint to fetch the Service Access Information from
+         *
+         * @param msg
+         */
         private fun setM5Endpoint(msg: Message) {
             try {
                 val bundle: Bundle = msg.data
@@ -262,6 +315,12 @@ class MediaSessionHandlerMessengerService() : Service() {
             }
         }
 
+        /**
+         * Request the metrics from the Media Stream Handler for a specific metrics scheme
+         *
+         * @param clientId
+         * @param clientMetricsReportingConfiguration
+         */
         private fun requestMetricsFromClient(
             clientId: Int,
             clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration
@@ -278,6 +337,11 @@ class MediaSessionHandlerMessengerService() : Service() {
 
     }
 
+    /**
+     * Initialize or network API to request the Service Access Information.
+     *
+     * @param url
+     */
     private fun initializeRetrofitForServiceAccessInformation(url: String) {
         val retrofitServiceAccessInformation: Retrofit = Retrofit.Builder()
             .baseUrl(url)
@@ -293,13 +357,12 @@ class MediaSessionHandlerMessengerService() : Service() {
      * for sending messages to the service. To create a bound service, you must define the interface that specifies
      * how a client can communicate with the service. This interface between the service and a client must be an implementation of
      * IBinder and is what your service must return from the onBind() callback method.
+     *
+     * @param intent
+     * @return
      */
     override fun onBind(intent: Intent): IBinder? {
         Log.i("MediaSessionHandler-New", "Service bound new")
-        return initializeMessenger()
-    }
-
-    private fun initializeMessenger(): IBinder? {
         mMessenger = Messenger(IncomingHandler(this))
         return mMessenger.binder
     }
