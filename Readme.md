@@ -1,6 +1,7 @@
 # 5GMS Media Session Handler 
 
 This repository holds the 5GMS Media Session Handler implementation of the 5G-MAG Reference Tools.
+Note that currently this implementation only supports downlink media streaming.
 
 ## Introduction
 
