@@ -5,7 +5,7 @@ Note that currently this implementation only supports downlink media streaming.
 
 ## Introduction
 
-The 5GMS Media Session Handler is a 5GMS client component that forms part of the 5G Media Services framework as defined in
+The 5GMS Media Session Handler is a 5GMS Client component that forms part of the 5G Media Services framework as defined in
 ETSI TS 126.501.
 
 ### 5GMS Downlink Media Session Handler
