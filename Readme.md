@@ -1,24 +1,27 @@
-# 5GMSd Media Session Handler 
+# 5GMS Media Session Handler 
 
-This repository holds the 5GMSd Media Session Handler implementation of the 5G-MAG Reference Tools.
+This repository holds the 5GMS Media Session Handler implementation of the 5G-MAG Reference Tools.
+Note that currently this implementation only supports downlink media streaming.
 
 ## Introduction
 
-The 5GMSd Media Session Handler is a 5GMSd client component that forms part of the 5G Media Services framework as defined in
-ETSI TS 126.501. A Media Session Handler first retrieves its configuration (“Service Access Information”) from the 5GMSd AF at reference point M5d and then uses this configuration information to activate and exploit the currently provisioned 5GMSd features. In
-addition, the Media Session Handler exposes APIs via M6 to the 5GMSd-Aware Application and to the
+The 5GMS Media Session Handler is a 5GMS Client component that forms part of the 5G Media Services framework as defined in
+ETSI TS 126.501.
+
+### 5GMS Downlink Media Session Handler
+A Media Session Handler first retrieves its configuration (“Service Access Information”) from the 5GMSd AF at reference point M5d and then uses this configuration information to activate and exploit the currently provisioned 5GMSd features. In addition, the Media Session Handler exposes APIs via M6 to the 5GMSd-Aware Application and to the
 Media Player (for downlink streaming). 
 
-### About the implementation
+#### Specifications
+
+A list of specification related to this repository is available in the [Standards Wiki](https://github.com/5G-MAG/Standards/wiki/5G-Downlink-Media-Streaming-Architecture-(5GMSd):-Relevant-Specifications).
+
+#### About the implementation
 
 The 5GMSd Media Session Handler is an Android application that implements functionality for 5G Media
 Streaming media session handling. It is implemented as an Android Messenger Service that
 communicates via Inter Process Communication (IPC) with other Android libraries and applications
 such as the Media Stream Handler and the 5GMSd-Aware Application.
-
-### Specifications
-
-A list of specification related to this repository is available in the [Standards Wiki](https://github.com/5G-MAG/Standards/wiki/5G-Downlink-Media-Streaming-Architecture-(5GMSd):-Relevant-Specifications).
 
 ## Downloading
 
@@ -33,7 +36,7 @@ git clone https://github.com/5G-MAG/rt-5gms-media-session-handler.git
 ```
 
 ## Install dependencies
-The 5GMSd-Aware Application requires the [Common Android Library](https://github.com/5G-MAG/rt-5gms-common-android-library) to run.
+The 5GMS-Aware Application requires the [Common Android Library](https://github.com/5G-MAG/rt-5gms-common-android-library) to run.
 
 It is included as Maven dependencies in the `build.gradle`:
 
