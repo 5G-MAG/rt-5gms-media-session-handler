@@ -41,7 +41,6 @@ class MediaSessionHandlerMessengerService() : Service() {
      * Target we publish for clients to send messages to IncomingHandler.
      */
     private lateinit var mMessenger: Messenger
-    private lateinit var serviceAccessInformationApi: ServiceAccessInformationApi
 
     /** Keeps track of all current registered clients.  */
     private var clientsSessionData = HashMap<Int, ClientSessionModel>()
@@ -66,7 +65,6 @@ class MediaSessionHandlerMessengerService() : Service() {
                 SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE -> handleStartPlaybackByServiceListEntryMessage(
                     msg
                 )
-
                 SessionHandlerMessageTypes.SET_M5_ENDPOINT -> setM5Endpoint(msg)
                 SessionHandlerMessageTypes.REPORT_PLAYBACK_METRICS_CAPABILITIES -> handlePlaybackMetricsCapabilitiesMessage(
                     msg
@@ -83,7 +81,7 @@ class MediaSessionHandlerMessengerService() : Service() {
          * @param msg
          */
         private fun registerClient(msg: Message) {
-            clientsSessionData[msg.sendingUid] = ClientSessionModel(msg.replyTo, null, LinkedList())
+            clientsSessionData[msg.sendingUid] = ClientSessionModel(msg.replyTo)
         }
 
         /**
@@ -129,7 +127,7 @@ class MediaSessionHandlerMessengerService() : Service() {
             val responseMessenger: Messenger = msg.replyTo
             val provisioningSessionId: String = serviceListEntry!!.provisioningSessionId
             val call: Call<ServiceAccessInformation>? =
-                serviceAccessInformationApi.fetchServiceAccessInformation(provisioningSessionId)
+                clientsSessionData[msg.sendingUid]?.serviceAccessInformationApi?.fetchServiceAccessInformation(provisioningSessionId)
             val sendingUid = msg.sendingUid;
 
             resetClientSession(sendingUid)
@@ -244,7 +242,7 @@ class MediaSessionHandlerMessengerService() : Service() {
                         timer.scheduleAtFixedRate(
                             object : TimerTask() {
                                 override fun run() {
-                                    requestMetricsFromClient(
+                                    requestMetricsForSchemeFromClient(
                                         clientId,
                                         clientMetricsReportingConfiguration
                                     )
@@ -309,7 +307,12 @@ class MediaSessionHandlerMessengerService() : Service() {
                 val m5BaseUrl: String? = bundle.getString("m5BaseUrl")
                 Log.i(TAG, "Setting M5 endpoint to $m5BaseUrl")
                 if (m5BaseUrl != null) {
-                    initializeRetrofitForServiceAccessInformation(m5BaseUrl)
+                    val retrofitServiceAccessInformation: Retrofit = Retrofit.Builder()
+                        .baseUrl(m5BaseUrl)
+                        .addConverterFactory(GsonConverterFactory.create())
+                        .build()
+                    clientsSessionData[msg.sendingUid]?.serviceAccessInformationApi =
+                        retrofitServiceAccessInformation.create(ServiceAccessInformationApi::class.java)
                 }
             } catch (e: Exception) {
             }
@@ -321,35 +324,40 @@ class MediaSessionHandlerMessengerService() : Service() {
          * @param clientId
          * @param clientMetricsReportingConfiguration
          */
-        private fun requestMetricsFromClient(
+        private fun requestMetricsForSchemeFromClient(
             clientId: Int,
             clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration
         ) {
-            Log.i(
-                TAG,
-                "Request metrics for client $clientId and scheme ${clientMetricsReportingConfiguration.scheme}"
+            val msg: Message = Message.obtain(
+                null,
+                SessionHandlerMessageTypes.GET_PLAYBACK_METRICS
             )
+            val bundle = Bundle()
+
+            if (clientMetricsReportingConfiguration.isSchemeSupported == false) {
+                return
+            }
+
+            val messenger = clientsSessionData[clientId]?.messenger
+            bundle.putString("scheme", clientMetricsReportingConfiguration.scheme)
+            msg.data = bundle
+            msg.replyTo = mMessenger
+            try {
+                Log.i(
+                    TAG,
+                    "Request metrics for client $clientId and scheme ${clientMetricsReportingConfiguration.scheme}"
+                )
+                messenger?.send(msg)
+            } catch (e: RemoteException) {
+                e.printStackTrace()
+            }
+
         }
 
         private fun triggerEvent() {
 
         }
 
-    }
-
-    /**
-     * Initialize or network API to request the Service Access Information.
-     *
-     * @param url
-     */
-    private fun initializeRetrofitForServiceAccessInformation(url: String) {
-        val retrofitServiceAccessInformation: Retrofit = Retrofit.Builder()
-            .baseUrl(url)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-
-        serviceAccessInformationApi =
-            retrofitServiceAccessInformation.create(ServiceAccessInformationApi::class.java)
     }
 
     /**
