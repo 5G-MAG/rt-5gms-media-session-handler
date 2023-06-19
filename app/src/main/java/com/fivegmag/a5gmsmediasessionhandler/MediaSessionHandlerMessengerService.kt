@@ -69,6 +69,9 @@ class MediaSessionHandlerMessengerService() : Service() {
                 SessionHandlerMessageTypes.REPORT_PLAYBACK_METRICS_CAPABILITIES -> handlePlaybackMetricsCapabilitiesMessage(
                     msg
                 )
+                SessionHandlerMessageTypes.REPORT_PLAYBACK_METRICS -> handlePlaybackMetricsMessage(
+                    msg
+                )
 
                 else -> super.handleMessage(msg)
             }
@@ -206,6 +209,18 @@ class MediaSessionHandlerMessengerService() : Service() {
 
             //TODO: For unsupported schemes: An error message shall be sent by the Media Session Handler to the appropriate network entity, indicating that metrics reporting for the indicated metrics scheme cannot be supported for this streaming service
 
+        }
+
+        private fun handlePlaybackMetricsMessage(msg: Message) {
+            val bundle: Bundle = msg.data
+            val metrics: String? = bundle.getString("qoeMetricsReport")
+            val sendingUid = msg.sendingUid
+
+            Toast.makeText(
+                applicationContext,
+                "Media Session Handler Service received metrics message",
+                Toast.LENGTH_SHORT
+            ).show()
         }
 
         /**
