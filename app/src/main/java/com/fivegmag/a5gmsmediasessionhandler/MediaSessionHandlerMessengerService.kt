@@ -215,12 +215,6 @@ class MediaSessionHandlerMessengerService() : Service() {
             val bundle: Bundle = msg.data
             val metrics: String? = bundle.getString("qoeMetricsReport")
             val sendingUid = msg.sendingUid
-
-            Toast.makeText(
-                applicationContext,
-                "Media Session Handler Service received metrics message",
-                Toast.LENGTH_SHORT
-            ).show()
         }
 
         /**
