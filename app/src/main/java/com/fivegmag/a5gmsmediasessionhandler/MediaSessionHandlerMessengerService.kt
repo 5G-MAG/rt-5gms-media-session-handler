@@ -19,7 +19,9 @@ import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
+import com.fivegmag.a5gmsmediasessionhandler.network.HeaderInterceptor
 import com.fivegmag.a5gmsmediasessionhandler.network.ServiceAccessInformationApi
+import okhttp3.OkHttpClient
 import retrofit2.Call
 import retrofit2.Response
 import retrofit2.Retrofit
@@ -60,6 +62,7 @@ class MediaSessionHandlerMessengerService() : Service() {
                 SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE -> handleStartPlaybackByServiceListEntryMessage(
                     msg
                 )
+
                 SessionHandlerMessageTypes.SET_M5_ENDPOINT -> setM5Endpoint(msg)
                 else -> super.handleMessage(msg)
             }
@@ -108,7 +111,7 @@ class MediaSessionHandlerMessengerService() : Service() {
                         null,
                         SessionHandlerMessageTypes.SESSION_HANDLER_TRIGGERS_PLAYBACK
                     )
-                    var finalEntryPoints : ArrayList<EntryPoint>? = serviceListEntry.entryPoints
+                    var finalEntryPoints: ArrayList<EntryPoint>? = serviceListEntry.entryPoints
                     if (finalEntryPoints == null || finalEntryPoints.size == 0) {
                         finalEntryPoints =
                             currentServiceAccessInformation.streamingAccess.entryPoints
@@ -149,7 +152,14 @@ class MediaSessionHandlerMessengerService() : Service() {
     }
 
     private fun initializeRetrofitForServiceAccessInformation(url: String) {
+        val headerInterceptor = HeaderInterceptor()
+        val okHttpClient = OkHttpClient()
+            .newBuilder()
+            .addInterceptor(headerInterceptor)
+            .build()
+
         val retrofitServiceAccessInformation: Retrofit = Retrofit.Builder()
+            .client(okHttpClient)
             .baseUrl(url)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
