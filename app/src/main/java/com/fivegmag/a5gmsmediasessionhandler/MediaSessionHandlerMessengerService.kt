@@ -18,6 +18,7 @@ import android.widget.Toast
 import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.models.*
+import com.fivegmag.a5gmscommonlibrary.qoeMetricsModels.threeGPP.PlaybackMetricsRequest
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionModel
 import com.fivegmag.a5gmsmediasessionhandler.network.ServiceAccessInformationApi
 import retrofit2.Call
@@ -65,10 +66,12 @@ class MediaSessionHandlerMessengerService() : Service() {
                 SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE -> handleStartPlaybackByServiceListEntryMessage(
                     msg
                 )
+
                 SessionHandlerMessageTypes.SET_M5_ENDPOINT -> setM5Endpoint(msg)
                 SessionHandlerMessageTypes.REPORT_PLAYBACK_METRICS_CAPABILITIES -> handlePlaybackMetricsCapabilitiesMessage(
                     msg
                 )
+
                 SessionHandlerMessageTypes.REPORT_PLAYBACK_METRICS -> handlePlaybackMetricsMessage(
                     msg
                 )
@@ -130,7 +133,9 @@ class MediaSessionHandlerMessengerService() : Service() {
             val responseMessenger: Messenger = msg.replyTo
             val provisioningSessionId: String = serviceListEntry!!.provisioningSessionId
             val call: Call<ServiceAccessInformation>? =
-                clientsSessionData[msg.sendingUid]?.serviceAccessInformationApi?.fetchServiceAccessInformation(provisioningSessionId)
+                clientsSessionData[msg.sendingUid]?.serviceAccessInformationApi?.fetchServiceAccessInformation(
+                    provisioningSessionId
+                )
             val sendingUid = msg.sendingUid;
 
             resetClientSession(sendingUid)
@@ -154,10 +159,10 @@ class MediaSessionHandlerMessengerService() : Service() {
                             resource.streamingAccess.entryPoints
                     }
 
-                    val bundle = Bundle()
+                    val responseBundle = Bundle()
                     if (finalEntryPoints != null && finalEntryPoints.size > 0) {
-                        bundle.putParcelableArrayList("entryPoints", finalEntryPoints)
-                        msgResponse.data = bundle
+                        responseBundle.putParcelableArrayList("entryPoints", finalEntryPoints)
+                        msgResponse.data = responseBundle
                         responseMessenger.send(msgResponse)
                     }
 
@@ -348,7 +353,13 @@ class MediaSessionHandlerMessengerService() : Service() {
             }
 
             val messenger = clientsSessionData[clientId]?.messenger
-            bundle.putString("scheme", clientMetricsReportingConfiguration.scheme)
+            val playbackMetricsRequest =
+                PlaybackMetricsRequest(clientMetricsReportingConfiguration.scheme)
+            if (clientMetricsReportingConfiguration.reportingInterval != null) {
+                playbackMetricsRequest.reportPeriod =
+                    clientMetricsReportingConfiguration.reportingInterval!!
+            }
+            bundle.putParcelable("data", playbackMetricsRequest)
             msg.data = bundle
             msg.replyTo = mMessenger
             try {
