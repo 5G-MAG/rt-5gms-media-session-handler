@@ -17,6 +17,7 @@ import android.util.Log
 import android.widget.Toast
 import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
+import com.fivegmag.a5gmscommonlibrary.helpers.Utils
 import com.fivegmag.a5gmscommonlibrary.models.*
 import com.fivegmag.a5gmscommonlibrary.qoeMetricsModels.threeGPP.PlaybackMetricsRequest
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionModel
@@ -45,6 +46,7 @@ class MediaSessionHandlerMessengerService() : Service() {
 
     /** Keeps track of all current registered clients.  */
     private var clientsSessionData = HashMap<Int, ClientSessionModel>()
+    private val utils: Utils = Utils()
 
     /**
      * Handler of incoming messages from clients.
@@ -213,7 +215,6 @@ class MediaSessionHandlerMessengerService() : Service() {
             ).show()
 
             //TODO: For unsupported schemes: An error message shall be sent by the Media Session Handler to the appropriate network entity, indicating that metrics reporting for the indicated metrics scheme cannot be supported for this streaming service
-
         }
 
         private fun handlePlaybackMetricsMessage(msg: Message) {
@@ -251,7 +252,11 @@ class MediaSessionHandlerMessengerService() : Service() {
 
             if (clientMetricsReportingConfigurations != null) {
                 for (clientMetricsReportingConfiguration in clientMetricsReportingConfigurations) {
-                    if (clientMetricsReportingConfiguration.isSchemeSupported == true && clientMetricsReportingConfiguration.reportingInterval != null && clientMetricsReportingConfiguration.reportingInterval!! > 0) {
+                    if (clientMetricsReportingConfiguration.isSchemeSupported == true &&
+                        clientMetricsReportingConfiguration.reportingInterval != null &&
+                        clientMetricsReportingConfiguration.reportingInterval!! > 0 &&
+                        shouldReportAccordingToSamplePercentage(clientMetricsReportingConfiguration.samplePercentage)
+                    ) {
                         val timer = Timer()
                         timer.scheduleAtFixedRate(
                             object : TimerTask() {
@@ -269,12 +274,19 @@ class MediaSessionHandlerMessengerService() : Service() {
                     }
                 }
             }
+        }
 
-            Toast.makeText(
-                applicationContext,
-                "Starting metric timer for client id: $clientId",
-                Toast.LENGTH_SHORT
-            ).show()
+        private fun shouldReportAccordingToSamplePercentage(samplePercentage: Float?): Boolean {
+            if (samplePercentage != null && samplePercentage <= 0) {
+                return false
+            }
+
+            if (samplePercentage == null || samplePercentage >= 100.0) {
+                return true
+            }
+
+            return utils.generateRandomFloat() < samplePercentage
+
         }
 
         /**
@@ -291,15 +303,20 @@ class MediaSessionHandlerMessengerService() : Service() {
             val clientMetricsReportingConfigurations: ArrayList<ClientMetricsReportingConfiguration> =
                 clientsSessionData[clientId]?.serviceAccessInformation?.clientMetricsReportingConfigurations
                     ?: return
-            val metricsSchemes: ArrayList<String> = ArrayList()
+            val playbackMetricsRequests: ArrayList<PlaybackMetricsRequest> = ArrayList()
             for (clientMetricsReportingConfiguration in clientMetricsReportingConfigurations) {
-                metricsSchemes.add(clientMetricsReportingConfiguration.scheme)
+                val playbackMetricsRequest = PlaybackMetricsRequest(
+                    clientMetricsReportingConfiguration.scheme,
+                    clientMetricsReportingConfiguration.reportingInterval,
+                    clientMetricsReportingConfiguration.metrics
+                )
+                playbackMetricsRequests.add(playbackMetricsRequest)
             }
-            if (metricsSchemes.size == 0) {
+            if (playbackMetricsRequests.size == 0) {
                 return
             }
             val messenger = clientsSessionData[clientId]?.messenger
-            bundle.putStringArrayList("metricsSchemes", metricsSchemes)
+            bundle.putParcelableArrayList("playbackMetricsRequests", playbackMetricsRequests)
             msg.data = bundle
             msg.replyTo = mMessenger
             try {
@@ -359,6 +376,7 @@ class MediaSessionHandlerMessengerService() : Service() {
                 playbackMetricsRequest.reportPeriod =
                     clientMetricsReportingConfiguration.reportingInterval!!
             }
+            playbackMetricsRequest.metrics = clientMetricsReportingConfiguration.metrics
             bundle.putParcelable("data", playbackMetricsRequest)
             msg.data = bundle
             msg.replyTo = mMessenger
