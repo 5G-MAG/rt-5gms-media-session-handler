@@ -20,15 +20,17 @@ import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.helpers.Utils
 import com.fivegmag.a5gmscommonlibrary.models.*
 import com.fivegmag.a5gmscommonlibrary.qoeMetricsModels.threeGPP.PlaybackMetricsRequest
+import com.fivegmag.a5gmscommonlibrary.qoeMetricsModels.threeGPP.PlaybackMetricsResponse
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionModel
+import com.fivegmag.a5gmsmediasessionhandler.network.MetricsReportingApi
 import com.fivegmag.a5gmsmediasessionhandler.network.ServiceAccessInformationApi
+import okhttp3.MediaType
+import okhttp3.RequestBody
 import retrofit2.Call
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.*
-import kotlin.collections.ArrayList
-import kotlin.collections.HashMap
 
 
 const val TAG = "5GMS Media Session Handler"
@@ -47,6 +49,8 @@ class MediaSessionHandlerMessengerService() : Service() {
     /** Keeps track of all current registered clients.  */
     private var clientsSessionData = HashMap<Int, ClientSessionModel>()
     private val utils: Utils = Utils()
+    private val retrofitBuilder = Retrofit.Builder()
+        .addConverterFactory(GsonConverterFactory.create())
 
     /**
      * Handler of incoming messages from clients.
@@ -217,10 +221,43 @@ class MediaSessionHandlerMessengerService() : Service() {
             //TODO: For unsupported schemes: An error message shall be sent by the Media Session Handler to the appropriate network entity, indicating that metrics reporting for the indicated metrics scheme cannot be supported for this streaming service
         }
 
+        /**
+         * Once we receive a metrics report from the Media Stream Handler we send it to the chosen AF
+         *
+         * @param {Message} msg
+         */
         private fun handlePlaybackMetricsMessage(msg: Message) {
             val bundle: Bundle = msg.data
-            val metrics: String? = bundle.getString("qoeMetricsReport")
+            bundle.classLoader = PlaybackMetricsResponse::class.java.classLoader
+            val playbackMetricsResponse: PlaybackMetricsResponse? =
+                bundle.getParcelable("playbackMetricsResponse")
             val sendingUid = msg.sendingUid
+            val clientSessionModel = clientsSessionData[sendingUid]
+            val provisioningSessionId =
+                clientSessionModel?.serviceAccessInformation?.provisioningSessionId
+            val metricsReportingConfigurationId =
+                playbackMetricsResponse?.metricsReportingConfigurationId
+            val metricsString = playbackMetricsResponse?.metricsString
+            val mediaType = MediaType.parse("application/xml")
+            val requestBody: RequestBody? = metricsString?.let { RequestBody.create(mediaType, it) }
+
+            if (clientSessionModel?.metricsReportingApi != null) {
+                val call: Call<Void>? = clientSessionModel.metricsReportingApi!!.sendMetricsReport(
+                    provisioningSessionId,
+                    metricsReportingConfigurationId,
+                    requestBody
+                )
+
+                call?.enqueue(object : retrofit2.Callback<Void?> {
+                    override fun onResponse(call: Call<Void?>, response: Response<Void?>) {
+                        Log.d(TAG, "Successfully send metrics report")
+                    }
+
+                    override fun onFailure(call: Call<Void?>, t: Throwable) {
+                        Log.d(TAG, "Error sending metrics report")
+                    }
+                })
+            }
         }
 
         /**
@@ -271,6 +308,12 @@ class MediaSessionHandlerMessengerService() : Service() {
                             clientMetricsReportingConfiguration.reportingInterval!!.times(1000)
                         )
                         clientsSessionData[clientId]?.metricReportingTimer?.add(timer)
+                        // Select one of the servers to report the metrics to
+                        val serverAddress =
+                            clientMetricsReportingConfiguration.serverAddresses.random()
+                        val retrofit = retrofitBuilder.baseUrl(serverAddress).build()
+                        clientsSessionData[clientId]?.metricsReportingApi =
+                            retrofit.create(MetricsReportingApi::class.java)
                     }
                 }
             }
@@ -308,7 +351,8 @@ class MediaSessionHandlerMessengerService() : Service() {
                 val playbackMetricsRequest = PlaybackMetricsRequest(
                     clientMetricsReportingConfiguration.scheme,
                     clientMetricsReportingConfiguration.reportingInterval,
-                    clientMetricsReportingConfiguration.metrics
+                    clientMetricsReportingConfiguration.metrics,
+                    clientMetricsReportingConfiguration.metricsReportingConfigurationId
                 )
                 playbackMetricsRequests.add(playbackMetricsRequest)
             }
@@ -338,12 +382,9 @@ class MediaSessionHandlerMessengerService() : Service() {
                 val m5BaseUrl: String? = bundle.getString("m5BaseUrl")
                 Log.i(TAG, "Setting M5 endpoint to $m5BaseUrl")
                 if (m5BaseUrl != null) {
-                    val retrofitServiceAccessInformation: Retrofit = Retrofit.Builder()
-                        .baseUrl(m5BaseUrl)
-                        .addConverterFactory(GsonConverterFactory.create())
-                        .build()
+                    val retrofit = retrofitBuilder.baseUrl(m5BaseUrl).build()
                     clientsSessionData[msg.sendingUid]?.serviceAccessInformationApi =
-                        retrofitServiceAccessInformation.create(ServiceAccessInformationApi::class.java)
+                        retrofit.create(ServiceAccessInformationApi::class.java)
                 }
             } catch (e: Exception) {
             }
@@ -377,6 +418,8 @@ class MediaSessionHandlerMessengerService() : Service() {
                     clientMetricsReportingConfiguration.reportingInterval!!
             }
             playbackMetricsRequest.metrics = clientMetricsReportingConfiguration.metrics
+            playbackMetricsRequest.metricReportingConfigurationId =
+                clientMetricsReportingConfiguration.metricsReportingConfigurationId
             bundle.putParcelable("data", playbackMetricsRequest)
             msg.data = bundle
             msg.replyTo = mMessenger
