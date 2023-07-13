@@ -309,8 +309,10 @@ class MediaSessionHandlerMessengerService() : Service() {
                         )
                         clientsSessionData[clientId]?.metricReportingTimer?.add(timer)
                         // Select one of the servers to report the metrics to
-                        val serverAddress =
+                        var serverAddress =
                             clientMetricsReportingConfiguration.serverAddresses.random()
+                        // Add a "/" in the end if not present
+                        serverAddress = utils.addTrailingSlashIfNeeded(serverAddress)
                         val retrofit = retrofitBuilder.baseUrl(serverAddress).build()
                         clientsSessionData[clientId]?.metricsReportingApi =
                             retrofit.create(MetricsReportingApi::class.java)
