@@ -23,9 +23,14 @@ import com.fivegmag.a5gmscommonlibrary.qoeMetricsModels.threeGPP.PlaybackMetrics
 import com.fivegmag.a5gmscommonlibrary.qoeMetricsModels.threeGPP.PlaybackMetricsResponse
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionModel
 import com.fivegmag.a5gmsmediasessionhandler.network.MetricsReportingApi
+import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
+import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
+import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
+import com.fivegmag.a5gmsmediasessionhandler.network.HeaderInterceptor
 import com.fivegmag.a5gmsmediasessionhandler.network.ServiceAccessInformationApi
 import okhttp3.MediaType
 import okhttp3.RequestBody
+import okhttp3.OkHttpClient
 import retrofit2.Call
 import retrofit2.Response
 import retrofit2.Retrofit
@@ -49,8 +54,14 @@ class MediaSessionHandlerMessengerService() : Service() {
     /** Keeps track of all current registered clients.  */
     private var clientsSessionData = HashMap<Int, ClientSessionModel>()
     private val utils: Utils = Utils()
+    private val headerInterceptor = HeaderInterceptor()
+    private val okHttpClient = OkHttpClient()
+        .newBuilder()
+        .addInterceptor(headerInterceptor)
+        .build()
     private val retrofitBuilder = Retrofit.Builder()
         .addConverterFactory(GsonConverterFactory.create())
+        .client(okHttpClient)
 
     /**
      * Handler of incoming messages from clients.
