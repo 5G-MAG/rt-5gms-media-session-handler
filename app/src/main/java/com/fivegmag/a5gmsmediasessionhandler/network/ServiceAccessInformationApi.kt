@@ -12,11 +12,14 @@ package com.fivegmag.a5gmsmediasessionhandler.network
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import retrofit2.Call
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.Path
 
 interface ServiceAccessInformationApi {
-
     @GET("service-access-information/{provisioningSessionId}")
-    fun fetchServiceAccessInformation(@Path("provisioningSessionId") provisioningSessionId: String?): Call<ServiceAccessInformation>?
-
+    fun fetchServiceAccessInformation(
+        @Path("provisioningSessionId") provisioningSessionId: String?,
+        @Header("If-None-Match") ifNoneMatch: String?,
+        @Header("If-Modified-Since") ifModifiedSince: String?
+    ): Call<ServiceAccessInformation>?
 }
