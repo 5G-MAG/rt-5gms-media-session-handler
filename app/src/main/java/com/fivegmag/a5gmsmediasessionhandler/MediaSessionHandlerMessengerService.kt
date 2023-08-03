@@ -150,7 +150,7 @@ class MediaSessionHandlerMessengerService() : Service() {
         }
 
         /**
-         * Starts the timer task to re-request and saves the current state of the Service Access Information e
+         * Starts the timer task to re-request and saves the current state of the Service Access Information
          *
          * @param response
          * @param sendingUid
@@ -167,7 +167,7 @@ class MediaSessionHandlerMessengerService() : Service() {
 
             // Save the ServiceAccessInformation if it has changed
             val resource: ServiceAccessInformation? = response.body()
-            if (resource != null && utils.hasResponseChanged(
+            if (resource != null && response.code() != 304 && utils.hasResponseChanged(
                     headers,
                     clientsSessionData[sendingUid]?.serviceAccessInformationResponseHeaders
                 )
