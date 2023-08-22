@@ -297,7 +297,7 @@ class MediaSessionHandlerMessengerService() : Service() {
      * IBinder and is what your service must return from the onBind() callback method.
      */
     override fun onBind(intent: Intent): IBinder? {
-        Log.i("MediaSessionHandler-New", "Service bound new")
+        Log.i("MediaSessionHandler-New", "Service bound new test first commit")
         mMessenger = Messenger(IncomingHandler(this))
         return mMessenger.binder
     }
