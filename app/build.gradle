@@ -50,3 +50,16 @@ dependencies {
     implementation "com.squareup.retrofit2:retrofit:$retrofit_version"
     implementation "com.squareup.retrofit2:converter-gson:$retrofit_version"
 }
+
+task CaptureLibraryVersion {
+    def libDef = project.configurations.getByName('implementation').allDependencies.matching {
+        it.group.equals("com.fivegmag")
+    }
+    if (libDef.size() > 0) {
+        android.buildTypes.each {
+            libDef.forEach { item ->
+                it.buildConfigField 'String', "LIB_VERSION_" + item.name, "\"${item.version}\""
+            }
+        }
+    }
+}
