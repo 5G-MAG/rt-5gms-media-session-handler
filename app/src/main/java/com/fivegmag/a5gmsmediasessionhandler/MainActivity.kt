@@ -15,7 +15,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.TextView
 
-const val TAG_MEDIA_SESSION_HANDLER = "5GMS Aware Application"
+const val TAG_MEDIA_SESSION_HANDLER = "5GMS Media Session Handler"
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
