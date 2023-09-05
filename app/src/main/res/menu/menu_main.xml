@@ -1,0 +1,13 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <!-- Settings, should always be in the overflow -->
+    <item android:id="@+id/actionLicense"
+        android:title="@string/actionLicense"
+        app:showAsAction="never"/>
+
+    <item android:id="@+id/actionAbout"
+        android:title="@string/actionAbout"
+        app:showAsAction="never"/>
+
+</menu>
