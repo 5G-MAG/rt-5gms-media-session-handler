@@ -3,11 +3,11 @@
 
     <!-- Settings, should always be in the overflow -->
     <item android:id="@+id/actionLicense"
-        android:title="@string/actionLicense"
+        android:title="@string/action_license"
         app:showAsAction="never"/>
 
     <item android:id="@+id/actionAbout"
-        android:title="@string/actionAbout"
+        android:title="@string/action_about"
         app:showAsAction="never"/>
 
 </menu>

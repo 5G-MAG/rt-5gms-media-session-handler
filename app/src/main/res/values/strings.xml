@@ -1,10 +1,21 @@
 <resources>
     <string name="app_name">5GMSMediaSessionHandler</string>
-    <string name="versionTextField">Version: %s</string>
-    <string name="headline">About: 5GMS Media Session Handler</string>
-    <string name="actionLicense">License</string>
-    <string name="actionAbout">About</string>
-    <string name="licenseText"><![CDATA[<h1>5G-MAG Public License (v1.0)</h1>
+    <string name="version_text_field">Version %s</string>
+    <string name="headline">5GMS Media Session Handler</string>
+    <string name="action_license">License</string>
+    <string name="action_about">About</string>
+    <string name="contact">Contact</string>
+    <string name="authors">Authors</string>
+    <string name="twitter_label">Twitter</string>
+    <string name="twitter_url">https://twitter.com/5GMAGnews</string>
+    <string name="linked_in_label">Linkedin</string>
+    <string name="linked_in_url">https://www.linkedin.com/company/5g-mag/?miniCompanyUrn=urn%3Ali%3Afs_miniCompany%3A29303180</string>
+    <string name="slack_label">Slack</string>
+    <string name="slack_url">https://join.slack.com/t/5g-mag/shared_invite/zt-trtvsmw5-yYgcRidDgIS7x_u48sTuQA</string>
+    <string name="website_label">Website</string>
+    <string name="website_url">https://www.5g-mag.com/</string>
+    <string name="authors_text">Daniel Silhavy, Jordi J. Gimenez</string>
+    <string name="license_text"><![CDATA[<h1>5G-MAG Public License (v1.0)</h1>
 
 <h3>LICENSE TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION OF
 5G-MAG SOFTWARE.</3>
@@ -251,4 +262,5 @@ under the License.
 </p><p>
 5G Media Action Group - <a href="www.5g-mag.com">www.5g-mag.com</a> – admin@5g-mag.com
 Version 1.0 Dated 22/07/2021]]></string>
+    <string name="twitter_icon_content_description">Twitter Icon</string>
 </resources>

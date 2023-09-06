@@ -1,14 +1,18 @@
 package com.fivegmag
 
 import android.app.AlertDialog
-import android.content.pm.PackageManager
+import android.content.Intent
+import android.net.Uri
 import android.text.Html
+import android.text.method.LinkMovementMethod
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
+import android.view.View
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.fivegmag.a5gmsmediasessionhandler.R
+
 
 open class BaseActivity : AppCompatActivity() {
 
@@ -22,7 +26,7 @@ open class BaseActivity : AppCompatActivity() {
             R.id.actionLicense -> {
                 val dialogView = LayoutInflater.from(this).inflate(R.layout.activity_license, null)
                 val textView = dialogView.findViewById<TextView>(R.id.licenseTextView)
-                val formattedText = getString(R.string.licenseText)
+                val formattedText = getString(R.string.license_text)
                 textView.text = Html.fromHtml(formattedText, Html.FROM_HTML_MODE_LEGACY)
                 val builder = AlertDialog.Builder(this)
                     .setView(dialogView)
@@ -33,13 +37,11 @@ open class BaseActivity : AppCompatActivity() {
                 dialog.show()
                 return true
             }
+
             R.id.actionAbout -> {
                 val dialogView = LayoutInflater.from(this).inflate(R.layout.activity_about, null)
-                val packageInfo = packageManager.getPackageInfo(packageName, 0)
-                val versionName = packageInfo.versionName
-                val versionTextView = dialogView.findViewById<TextView>(R.id.versionNumberView)
-                val versionText = getString(R.string.versionTextField, versionName)
-                versionTextView.text = versionText
+                addVersionNumber(dialogView)
+                setClickListeners(dialogView)
                 val builder = AlertDialog.Builder(this)
                     .setView(dialogView)
                     .setPositiveButton("OK") { dialog, _ ->
@@ -52,6 +54,44 @@ open class BaseActivity : AppCompatActivity() {
 
         }
         return super.onOptionsItemSelected(item)
+    }
+
+    private fun addVersionNumber(dialogView: View) {
+        val packageInfo = packageManager.getPackageInfo(packageName, 0)
+        val versionName = packageInfo.versionName
+        val versionTextView = dialogView.findViewById<TextView>(R.id.versionNumberView)
+        val versionText = getString(R.string.version_text_field, versionName)
+        versionTextView.text = versionText
+    }
+
+    private fun setClickListeners(dialogView: View) {
+        val twitterTextView = dialogView.findViewById<TextView>(R.id.twitterLink)
+        twitterTextView.setOnClickListener {
+            val url = getString(R.string.twitter_url)
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(intent)
+        }
+
+        val linkedInView = dialogView.findViewById<TextView>(R.id.linkedInLink)
+        linkedInView.setOnClickListener {
+            val url = getString(R.string.linked_in_url)
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(intent)
+        }
+
+        val slackView = dialogView.findViewById<TextView>(R.id.slackLink)
+        slackView.setOnClickListener {
+            val url = getString(R.string.slack_url)
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(intent)
+        }
+
+        val websiteView = dialogView.findViewById<TextView>(R.id.websiteLink)
+        websiteView.setOnClickListener {
+            val url = getString(R.string.website_url)
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(intent)
+        }
     }
 
 
