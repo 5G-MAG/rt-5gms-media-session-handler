@@ -4,6 +4,7 @@
     <string name="headline">5GMS Media Session Handler</string>
     <string name="action_license">License</string>
     <string name="action_about">About</string>
+    <string name="action_attribution_notice">Attribution Notice</string>
     <string name="contact">Contact</string>
     <string name="authors">Authors</string>
     <string name="twitter_label">Twitter</string>

@@ -4,7 +4,7 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.text.Html
-import android.text.method.LinkMovementMethod
+import com.google.android.gms.oss.licenses.OssLicensesMenuActivity;
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
@@ -49,6 +49,13 @@ open class BaseActivity : AppCompatActivity() {
                     }
                 val dialog = builder.create()
                 dialog.show()
+                return true
+            }
+
+            R.id.actionAttribution -> {
+                OssLicensesMenuActivity.setActivityTitle(getString(R.string.action_attribution_notice))
+                val licensesIntent = Intent(this, OssLicensesMenuActivity::class.java)
+                startActivity(licensesIntent)
                 return true
             }
 
