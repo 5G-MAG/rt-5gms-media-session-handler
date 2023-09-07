@@ -35,12 +35,14 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.Timer
 import java.util.TimerTask
+import kotlin.math.abs
 
 import kotlin.random.Random
 
 const val TAG = "5GMS Media Session Handler"
 
-const val SamplePercentageMax: Float = 100.0F;
+const val SamplePercentageMax: Float    = 100.0F;
+const val EPSILON: Float                = 0.0001F;
 
 /**
  * Create a bound service when you want to interact with the service from activities and other components in your application
@@ -55,9 +57,8 @@ class MediaSessionHandlerMessengerService() : Service() {
     private var clientsSessionData = HashMap<Int, ClientSessionModel>()
 
     private lateinit var serviceAccessInformationApi: ServiceAccessInformationApi
-    //private lateinit var currentServiceAccessInformation: ServiceAccessInformation
     private var currentServiceAccessInformation: ServiceAccessInformation? = null
-
+    
     private lateinit var consumptionReportingApi: ConsumptionReportingApi
     private lateinit var serverAddressesForConsumpReport: String
     
@@ -139,13 +140,12 @@ class MediaSessionHandlerMessengerService() : Service() {
                     val resource =
                         handleServiceAccessResponse(response, sendingUid, provisioningSessionId)
 
-                    // initialize Retrofit for ConsumptionReporting
+                    // create Retrofit for ConsumptionReporting
                     currentServiceAccessInformation = resource
                     if(currentServiceAccessInformation!!.clientConsumptionReportingConfiguration.serverAddresses.isNotEmpty())
                     {
                         val serverAddressesForConsumpReport: String  = currentServiceAccessInformation!!.clientConsumptionReportingConfiguration.serverAddresses[0];
-                        Log.i(TAG, ">>>shilin: clientConsumptionReportingConfiguration serverAddresses0:  $serverAddressesForConsumpReport.")
-                        initializeRetrofitForConsumpReport(serverAddressesForConsumpReport)
+                        createRetrofitForConsumpReport(serverAddressesForConsumpReport)
                     }
 
                     // Trigger the playback by providing all available entry points
@@ -165,11 +165,10 @@ class MediaSessionHandlerMessengerService() : Service() {
                         msgResponse.data = responseBundle
                         responseMessenger.send(msgResponse)
                     }
-
                 }
 
                 override fun onFailure(call: Call<ServiceAccessInformation?>, t: Throwable) {
-                    Log.i(TAG, ">>>shilin: debug onFailure")
+                    Log.i(TAG, "debug onFailure")
                     call.cancel()
                 }
             })
@@ -347,18 +346,22 @@ class MediaSessionHandlerMessengerService() : Service() {
     private fun IsConsumptionReportingActivated(): Boolean {
         //if(currentServiceAccessInformation.isInitialized) {
         if(currentServiceAccessInformation == null) {
+            Log.i(TAG, "[ConsumptionReporting] currentServiceAccessInformation is 【NULL】")
             return false
         }
 
+        // validate samplePercentage in ServiceAccessInformation.clientConsumptionReportingConfiguration
         var samplePercentage: Float =  currentServiceAccessInformation!!.clientConsumptionReportingConfiguration.samplePercentage;
         if(samplePercentage > SamplePercentageMax)
         {
-            Log.i(TAG, "shilin>>>Invaild samplePercentage $samplePercentage in currentServiceAccessInformation")
+            Log.i(TAG, "[ConsumptionReporting] Invaild samplePercentage[$samplePercentage] in ServiceAccessInformation.clientConsumptionReportingConfiguration")
             return false;
         }
 
-        if(SamplePercentageMax == samplePercentage)
+        // if samplePercentage == 100, always report
+        if(abs(SamplePercentageMax - samplePercentage) < EPSILON)
         {
+            Log.i(TAG, "[ConsumptionReporting] SamplePercentage==SamplePercentageMax, always report")
             return true;
         }
 
@@ -367,12 +370,12 @@ class MediaSessionHandlerMessengerService() : Service() {
         val myRandomValue:Float     = myRandomInt - 1 + myRandomFloat
         if(myRandomValue >= samplePercentage)
         {
-            Log.i(TAG, "shilin>>>IsConsumptionReportingActivated true:myRandomValue[$myRandomValue],samplePercentage[$samplePercentage]")
+            Log.i(TAG, "[ConsumptionReporting]IsConsumptionReportingActivated 【TRUE】:myRandomValue[$myRandomValue],samplePercentage[$samplePercentage]")
             return true;
         }
         else
         {
-            Log.i(TAG, "shilin>>>IsConsumptionReportingActivated false:myRandomValue[$myRandomValue],samplePercentage[$samplePercentage]")
+            Log.i(TAG, "[ConsumptionReporting]IsConsumptionReportingActivated 【FALSE】:myRandomValue[$myRandomValue],samplePercentage[$samplePercentage]")
             return false;
         }
     }
@@ -383,7 +386,7 @@ class MediaSessionHandlerMessengerService() : Service() {
         // check IsConsumptionReportingActivated
         if (!IsConsumptionReportingActivated())
         {
-            Log.i(TAG, "shilin>>>ReportConsumption not Activated")
+            Log.i(TAG, "[ConsumptionReporting] IsConsumptionReportingActivated is 【FALSE】")
             return false;
         }
 
@@ -411,7 +414,7 @@ class MediaSessionHandlerMessengerService() : Service() {
     private fun reportConsumption(msg: Message) {
         if (!NeedReportConsumption())
         {
-            Log.i(TAG, "shilin>>>Not need ReportConsumption")
+            Log.i(TAG, "[ConsumptionReporting] Not need ReportConsumption")
             return
         }
 
@@ -420,14 +423,21 @@ class MediaSessionHandlerMessengerService() : Service() {
         //val data: String = bundle.getString("ConsumptionData", "")
         val dataReporting: ConsumptionReporting? = bundle.getParcelable("consumptionData")
 
-        Log.i(TAG, "reportConsumption ClientId: ${dataReporting?.reportingClientId}.")
+        Log.i(TAG, "[ConsumptionReporting] reportConsumption ClientId: ${dataReporting?.reportingClientId}.")
         Toast.makeText(
             applicationContext,
             "MSH recv Consumption-ID: ${dataReporting?.reportingClientId}",
             Toast.LENGTH_LONG
         ).show()
 
+
         // call m5 report consumption to AF - TS26.512 Clause 4.7.4
+        if(consumptionReportingApi == null)
+        {
+            Log.i(TAG, "[ConsumptionReporting] consumptionReportingApi is 【NULL】")
+            return;
+        }
+
         val aspId: String = "2";
         val call: Call<ResponseBody>? = consumptionReportingApi.postConsumptionReporting(aspId,dataReporting?.reportingClientId);
 
@@ -436,22 +446,30 @@ class MediaSessionHandlerMessengerService() : Service() {
                 call: Call<ResponseBody?>,
                 response: Response<ResponseBody?>
             ) {
-                Log.i(TAG, "shilin>>resp from AF:"+ response.body()?.string())
-                //System.out.println(">>>>>>>>>>>>"+response.body());
+                Log.i(TAG, "[ConsumptionReporting] resp from AF:"+ response.body()?.string())
             }
 
             override fun onFailure(call: Call<ResponseBody?>, t: Throwable) {
-                Log.i(TAG, "shilin>>onFailure")
+                Log.i(TAG, "[ConsumptionReporting] onFailure")
                 call.cancel()
             }
         })
     }
     
-    private fun initializeRetrofitForConsumpReport(url: String) {
-        val m5RetrofitConsump: Retrofit = Retrofit.Builder()
-            .baseUrl(url)
-            //.addConverterFactory(GsonConverterFactory.create())
-            .build()
-        consumptionReportingApi     = m5RetrofitConsump.create(ConsumptionReportingApi::class.java)
+    private fun createRetrofitForConsumpReport(consumpReportUrl: String) {
+        try {
+            Log.i(TAG, "[ConsumptionReporting] createRetrofitForConsumpReport URL: $consumpReportUrl.")
+
+            if (consumpReportUrl != null) {
+                val retrofit = retrofitBuilder
+                    .baseUrl(consumpReportUrl)
+                    .build()
+
+                ////  todo: support multi Clients
+                consumptionReportingApi = retrofit.create(ConsumptionReportingApi::class.java)
+            }
+        } catch (e: Exception) {
+        }
     }
+
 }
