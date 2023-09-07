@@ -40,7 +40,7 @@ import kotlin.random.Random
 
 const val TAG = "5GMS Media Session Handler"
 
-const val SamplePercentage_100 = 100;
+const val SamplePercentageMax: Float = 100.0F;
 
 /**
  * Create a bound service when you want to interact with the service from activities and other components in your application
@@ -350,20 +350,22 @@ class MediaSessionHandlerMessengerService() : Service() {
             return false
         }
 
-        var samplePercentage: UInt =  currentServiceAccessInformation!!.clientConsumptionReportingConfiguration.samplePercentage;
-        if(samplePercentage > SamplePercentage_100.toUInt())
+        var samplePercentage: Float =  currentServiceAccessInformation!!.clientConsumptionReportingConfiguration.samplePercentage;
+        if(samplePercentage > SamplePercentageMax)
         {
             Log.i(TAG, "shilin>>>Invaild samplePercentage $samplePercentage in currentServiceAccessInformation")
             return false;
         }
 
-        if(SamplePercentage_100.toUInt() == samplePercentage)
+        if(SamplePercentageMax == samplePercentage)
         {
             return true;
         }
 
-        val myRandomValue = Random.nextInt(0, SamplePercentage_100)
-        if(myRandomValue.toUInt() >= samplePercentage)
+        val myRandomFloat:Float     = Random.nextFloat()
+        val myRandomInt:Int         = Random.nextInt(0, SamplePercentageMax.toInt())
+        val myRandomValue:Float     = myRandomInt - 1 + myRandomFloat
+        if(myRandomValue >= samplePercentage)
         {
             Log.i(TAG, "shilin>>>IsConsumptionReportingActivated true:myRandomValue[$myRandomValue],samplePercentage[$samplePercentage]")
             return true;
