@@ -22,5 +22,4 @@ interface ConsumptionReportingApi {
     @FormUrlEncoded
     @POST("consumption-reporting/{aspId}")
     fun postConsumptionReporting(@Path("aspId") aspId: String?, @Field("data") data: String?): Call<ResponseBody>?
-    //fun postConsumptionReporting(@Path("aspId") aspId: String?, @Field("data") data: String ): Call<String>?
 }
