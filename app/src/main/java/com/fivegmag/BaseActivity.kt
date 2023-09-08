@@ -72,6 +72,14 @@ open class BaseActivity : AppCompatActivity() {
     }
 
     private fun setClickListeners(dialogView: View) {
+
+        val githubTextView = dialogView.findViewById<TextView>(R.id.githubLink)
+        githubTextView.setOnClickListener {
+            val url = getString(R.string.github_url)
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(intent)
+        }
+
         val twitterTextView = dialogView.findViewById<TextView>(R.id.twitterLink)
         twitterTextView.setOnClickListener {
             val url = getString(R.string.twitter_url)

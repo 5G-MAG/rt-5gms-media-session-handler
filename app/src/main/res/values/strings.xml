@@ -7,6 +7,9 @@
     <string name="action_attribution_notice">Attribution Notice</string>
     <string name="contact">Contact</string>
     <string name="authors">Authors</string>
+    <string name="project">Project</string>
+    <string name="github_label">Github</string>
+    <string name="github_url">https://github.com/5G-MAG/rt-5gms-media-session-handler</string>
     <string name="twitter_label">Twitter</string>
     <string name="twitter_url">https://twitter.com/5GMAGnews</string>
     <string name="linked_in_label">Linkedin</string>
