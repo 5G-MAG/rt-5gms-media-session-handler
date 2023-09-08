@@ -408,15 +408,15 @@ class MediaSessionHandlerMessengerService() : Service() {
             return;
         }
 
-        val aspId: String = "2";
-        val call: Call<ResponseBody>? = consumptionReportingApi.postConsumptionReporting(aspId,dataReporting?.reportingClientId);
+        val provisisioningSessionId: String = "2";
+        val call: Call<ResponseBody>? = consumptionReportingApi.postConsumptionReporting(provisisioningSessionId, dataReporting?.reportingClientId);
 
         call?.enqueue(object : retrofit2.Callback<ResponseBody> {
             override fun onResponse(
                 call: Call<ResponseBody?>,
                 response: Response<ResponseBody?>
             ) {
-                Log.i(TAG, "[ConsumptionReporting] resp from AF:"+ response.body()?.string())
+                Log.i(TAG, "[ConsumptionReporting] resp from AF:" + response.body()?.string())
             }
 
             override fun onFailure(call: Call<ResponseBody?>, t: Throwable) {
