@@ -42,6 +42,7 @@ open class BaseActivity : AppCompatActivity() {
                 val dialogView = LayoutInflater.from(this).inflate(R.layout.activity_about, null)
                 addVersionNumber(dialogView)
                 setClickListeners(dialogView)
+                formatAboutText(dialogView)
                 val builder = AlertDialog.Builder(this)
                     .setView(dialogView)
                     .setPositiveButton("OK") { dialog, _ ->
@@ -107,6 +108,12 @@ open class BaseActivity : AppCompatActivity() {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             startActivity(intent)
         }
+    }
+
+    private fun formatAboutText(dialogView: View) {
+        val textView = dialogView.findViewById<TextView>(R.id.descriptionText)
+        val formattedText = getString(R.string.description_text)
+        textView.text = Html.fromHtml(formattedText, Html.FROM_HTML_MODE_LEGACY)
     }
 
 
