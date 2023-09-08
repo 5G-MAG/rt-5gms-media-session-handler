@@ -15,7 +15,7 @@
     <string name="slack_url">https://join.slack.com/t/5g-mag/shared_invite/zt-trtvsmw5-yYgcRidDgIS7x_u48sTuQA</string>
     <string name="website_label">Website</string>
     <string name="website_url">https://www.5g-mag.com/</string>
-    <string name="authors_text">Daniel Silhavy, Jordi J. Gimenez</string>
+    <string name="authors_text">https://github.com/5G-MAG/rt-5gms-media-session-handler/graphs/contributors</string>
     <string name="license_text"><![CDATA[<h1>5G-MAG Public License (v1.0)</h1>
 
 <h3>LICENSE TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION OF
