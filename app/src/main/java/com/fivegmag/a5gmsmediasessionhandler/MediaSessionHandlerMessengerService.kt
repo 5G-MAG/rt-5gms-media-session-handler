@@ -35,12 +35,12 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.Timer
 import java.util.TimerTask
-import kotlin.math.abs
 
+import kotlin.math.abs
 import kotlin.random.Random
 
-const val TAG = "5GMS Media Session Handler"
 
+const val TAG = "5GMS Media Session Handler"
 const val SamplePercentageMax: Float    = 100.0F;
 const val EPSILON: Float                = 0.0001F;
 
@@ -315,23 +315,12 @@ class MediaSessionHandlerMessengerService() : Service() {
         return mMessenger.binder
     }
 
-    /* Refer to TS26.512 Clause 4.7.4
-    The Service Access Information indicating whether Consumption Reporting is provisioned for downlink streaming
-    sessions is described in clause 11.2.3. When the clientConsumptionReportingConfiguration.samplePercentage
-    value is 100, the Media Session Handler shall activate the consumption reporting procedure.
-    If the samplePercentage is less than 100, the Media Session Handler shall generate a random number
-    which is uniformly distributed in the range of 0 to 100, and the Media Session Handler shall activate
-    the consumption report procedure when the generated random number is of a lower value than
-    the samplePercentage value.The Service Access Information indicating whether Consumption Reporting
-    is provisioned for downlink streaming sessions is described in clause 11.2.3. When the
-    clientConsumptionReportingConfiguration.samplePercentage value is 100, the Media Session Handler
-    shall activate the consumption reporting procedure. If the samplePercentage is less than 100,
-    the Media Session Handler shall generate a random number which is uniformly distributed in
-    the range of 0 to 100, and the Media Session Handler shall activate the consumption report
-    procedure when the generated random number is of a lower value than the samplePercentage value.
-    The Service Access Information indicating whether Consumption Reporting is provisioned for downlink streaming sessions is described in clause 11.2.3. When the clientConsumptionReportingConfiguration.samplePercentage value is 100, the Media Session Handler shall activate the consumption reporting procedure. If the samplePercentage is less than 100, the Media Session Handler shall generate a random number which is uniformly distributed in the range of 0 to 100, and the Media Session Handler shall activate the consumption report procedure when the generated random number is of a lower value than the samplePercentage value.
+    /** If the consumption reporting procedure is activated. Refer to TS26.512 Clause 4.7.4
+     * When the clientConsumptionReportingConfiguration.samplePercentage value is 100, the Media Session Handler shall activate the consumption reporting procedure.
+     * If the samplePercentage is less than 100, the Media Session Handler shall generate a random number which is uniformly distributed in the range of 0 to 100,
+     * and the Media Session Handler shall activate the consumption report procedure when the generated random number is of a lower value than the samplePercentage value.
      */
-    private fun IsConsumptionReportingActivated(clientId: Int): Boolean {
+    private fun isConsumptionReportingActivated(clientId: Int): Boolean {
         //if(currentServiceAccessInformation.isInitialized)
         if(clientsSessionData[clientId]?.serviceAccessInformation == null) {
             Log.i(TAG, "[ConsumptionReporting] IsConsumptionReportingActivated: ServiceAccessInformation is 【NULL】")
@@ -340,7 +329,7 @@ class MediaSessionHandlerMessengerService() : Service() {
 
         // validate samplePercentage in ServiceAccessInformation.clientConsumptionReportingConfiguration
         var samplePercentage: Float =  clientsSessionData[clientId]?.serviceAccessInformation!!.clientConsumptionReportingConfiguration.samplePercentage;
-        if(samplePercentage > SamplePercentageMax)
+        if(samplePercentage > SamplePercentageMax || samplePercentage < 0)
         {
             Log.i(TAG, "[ConsumptionReporting] Invaild samplePercentage[$samplePercentage] in ServiceAccessInformation.clientConsumptionReportingConfiguration")
             return false;
@@ -353,43 +342,35 @@ class MediaSessionHandlerMessengerService() : Service() {
             return true;
         }
 
-        val myRandomFloat:Float     = Random.nextFloat()
-        val myRandomInt:Int         = Random.nextInt(0, SamplePercentageMax.toInt())
-        val myRandomValue:Float     = myRandomInt - 1 + myRandomFloat
-        if(myRandomValue >= samplePercentage)
-        {
-            Log.i(TAG, "[ConsumptionReporting]IsConsumptionReportingActivated 【TRUE】:myRandomValue[$myRandomValue],samplePercentage[$samplePercentage]")
-            return true;
-        }
-        else
-        {
-            Log.i(TAG, "[ConsumptionReporting]IsConsumptionReportingActivated 【FALSE】:myRandomValue[$myRandomValue],samplePercentage[$samplePercentage]")
-            return false;
-        }
+        val randomFloat:Float     = Random.nextFloat()
+        val randomInt:Int         = Random.nextInt(0, SamplePercentageMax.toInt())
+        val randomValue:Float     = randomInt - 1 + randomFloat
+        Log.i(TAG, "[ConsumptionReporting] isConsumptionReportingActivated:myRandomValue[$randomValue],samplePercentage[$samplePercentage]")
+
+        return randomValue < samplePercentage
     }
 
-    /* Refer to TS26.512 Clause 4.7.4
-                TS26.501 Clause 5.6.3*/
-    private fun NeedReportConsumption(clientId: Int): Boolean {
+    /** Refer to TS26.512 Clause 4.7.4 TS26.501 Clause 5.6.3
+        If the consumption reporting procedure is activated, the Media Session Handler shall submit a consumption report to the 5GMSd AF
+        when any of the 5 conditions occur
+     */
+    private fun isNeedReportConsumption(clientId: Int): Boolean {
         // check IsConsumptionReportingActivated
-        if (!IsConsumptionReportingActivated(clientId))
+        if (!isConsumptionReportingActivated(clientId))
         {
-            //Log.i(TAG, "[ConsumptionReporting] IsConsumptionReportingActivated is 【FALSE】")
+            Log.i(TAG, "[ConsumptionReporting] IsConsumptionReportingActivated is 【FALSE】")
             return false;
         }
 
-        // Start/stop of consumption of a downlink streaming session
-        // triggered when PlayerStates.PLAYING  &  PlayerStates.ENDED
-        /*if( Start || stop)
-        {
-            return true;
-        }*/
+        // Condition 1/2: Start/stop of consumption of a downlink streaming session
+        // In Media Stream handler, when condition 1/2 occur, reportConsumption
+        //// to check, need return
 
-        // check clientConsumptionReportingConfiguration.reportingInterval, start a timer
-        // reportConsumptionTimer()
+        // Condition 3: check clientConsumptionReportingConfiguration.reportingInterval, timer trigger
+        // In Media Stream handler, reportConsumptionTimer()
+        //// to check, need return
 
-        // check clientConsumptionReportingConfiguration.locationReporting
-        // check clientConsumptionReportingConfiguration.accessReporting
+        // Condition 4/5:check clientConsumptionReportingConfiguration.locationReporting and clientConsumptionReportingConfiguration.accessReporting
         if(clientsSessionData[clientId]?.serviceAccessInformation!!.clientConsumptionReportingConfiguration.locationReporting
             || clientsSessionData[clientId]?.serviceAccessInformation!!.clientConsumptionReportingConfiguration.accessReporting)
         {
@@ -401,7 +382,7 @@ class MediaSessionHandlerMessengerService() : Service() {
 
     private fun reportConsumption(msg: Message) {
         val sendingUid = msg.sendingUid;
-        if (!NeedReportConsumption(sendingUid))
+        if (!isNeedReportConsumption(sendingUid))
         {
             Log.i(TAG, "[ConsumptionReporting] Not need ReportConsumption")
             return
@@ -452,7 +433,7 @@ class MediaSessionHandlerMessengerService() : Service() {
             {
                 consumpReportUrl = clientsSessionData[clientId]?.serviceAccessInformation!!.clientConsumptionReportingConfiguration.serverAddresses[0];
             }
-            Log.i(TAG, "[ConsumptionReporting] createRetrofitForConsumpReport URL---: $consumpReportUrl.")
+            Log.i(TAG, "[ConsumptionReporting] createRetrofitForConsumpReport URL: $consumpReportUrl.")
 
             if (consumpReportUrl != "") {
                 val retrofit = retrofitBuilder
