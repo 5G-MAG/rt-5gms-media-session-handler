@@ -1,0 +1,16 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item android:id="@+id/actionAttribution"
+        android:title="@string/action_attribution_notice"
+        app:showAsAction="never"/>
+
+    <item android:id="@+id/actionLicense"
+        android:title="@string/action_license"
+        app:showAsAction="never"/>
+
+    <item android:id="@+id/actionAbout"
+        android:title="@string/action_about"
+        app:showAsAction="never"/>
+
+</menu>

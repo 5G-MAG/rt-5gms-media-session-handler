@@ -13,31 +13,25 @@ import android.content.pm.PackageManager
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.util.Log
+import android.view.Menu
+import android.view.MenuItem
 import android.widget.TextView
+import com.fivegmag.BaseActivity
 
 const val TAG_MEDIA_SESSION_HANDLER = "5GMS Media Session Handler"
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        setApplicationVersionNumber()
+        setSupportActionBar(findViewById(R.id.toolbar))
         printDependenciesVersionNumbers()
     }
 
-    private fun setApplicationVersionNumber() {
-        try {
-            val packageInfo = packageManager.getPackageInfo(packageName, 0)
-            val versionName = packageInfo.versionName
-            val versionTextView = findViewById<TextView>(R.id.versionNumber)
-            val versionText = getString(R.string.versionTextField, versionName)
-            versionTextView.text = versionText
-        } catch (e: PackageManager.NameNotFoundException) {
-            e.printStackTrace()
-        }
-    }
-
     private fun printDependenciesVersionNumbers() {
-        Log.d(TAG_MEDIA_SESSION_HANDLER, "5GMS Common Library Version: ${BuildConfig.LIB_VERSION_a5gmscommonlibrary}")
+        Log.d(
+            TAG_MEDIA_SESSION_HANDLER,
+            "5GMS Common Library Version: ${BuildConfig.LIB_VERSION_a5gmscommonlibrary}"
+        )
     }
 }
