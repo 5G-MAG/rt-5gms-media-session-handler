@@ -33,7 +33,9 @@ import retrofit2.Call
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+
 import java.util.Timer
+import java.util.Date
 import java.util.TimerTask
 
 import kotlin.math.abs
@@ -133,8 +135,9 @@ class MediaSessionHandlerMessengerService() : Service() {
                     val resource =
                         handleServiceAccessResponse(response, sendingUid, provisioningSessionId)
 
-                    // create Retrofit for ConsumptionReporting
+                    // create Retrofit for ConsumptionReporting, and start ConsumptionReport Timer
                     createRetrofitForConsumpReport(sendingUid)
+                    startConsumptionReportTimer(sendingUid)
 
                     // Trigger the playback by providing all available entry points
                     val msgResponse: Message = Message.obtain(
@@ -266,7 +269,7 @@ class MediaSessionHandlerMessengerService() : Service() {
 
         /**
          * Reset a client session once a new playback session is started. Remove the ServiceAccessInformation
-         * for the corresponding client id and reset all metric reporting timers.
+         * for the corresponding client id and reset all metric/comsumption reporting timers.
          *
          * @param clientId
          */
@@ -276,6 +279,8 @@ class MediaSessionHandlerMessengerService() : Service() {
                 clientsSessionData[clientId]?.serviceAccessInformation = null
                 clientsSessionData[clientId]?.serviceAccessInformationRequestTimer?.cancel()
                 clientsSessionData[clientId]?.serviceAccessInformationRequestTimer = null
+                clientsSessionData[clientId]?.consumptionReportingTimer?.cancel()
+                clientsSessionData[clientId]?.consumptionReportingTimer = null
                 clientsSessionData[clientId]?.serviceAccessInformationResponseHeaders = null
             }
         }
@@ -327,7 +332,7 @@ class MediaSessionHandlerMessengerService() : Service() {
             return false
         }
 
-        // validate samplePercentage in ServiceAccessInformation.clientConsumptionReportingConfiguration
+        // check if the samplePercentage in ServiceAccessInformation.clientConsumptionReportingConfiguration is valid
         var samplePercentage: Float =  clientsSessionData[clientId]?.serviceAccessInformation!!.clientConsumptionReportingConfiguration.samplePercentage;
         if(samplePercentage > SamplePercentageMax || samplePercentage < 0)
         {
@@ -335,13 +340,14 @@ class MediaSessionHandlerMessengerService() : Service() {
             return false;
         }
 
-        // if samplePercentage == 100, always report
+        // if samplePercentage is 100, MSH shall activate the consumption reporting procedure
         if(abs(SamplePercentageMax - samplePercentage) < EPSILON)
         {
             Log.i(TAG, "[ConsumptionReporting] SamplePercentage==SamplePercentageMax, always report")
             return true;
         }
 
+        // if the generated random number is of a lower value than the samplePercentage value
         val randomFloat:Float     = Random.nextFloat()
         val randomInt:Int         = Random.nextInt(0, SamplePercentageMax.toInt())
         val randomValue:Float     = randomInt - 1 + randomFloat
@@ -359,7 +365,7 @@ class MediaSessionHandlerMessengerService() : Service() {
         if (!isConsumptionReportingActivated(clientId))
         {
             Log.i(TAG, "[ConsumptionReporting] IsConsumptionReportingActivated is 【FALSE】")
-            return false;
+            return false
         }
 
         // Condition 1/2: Start/stop of consumption of a downlink streaming session
@@ -367,17 +373,23 @@ class MediaSessionHandlerMessengerService() : Service() {
         //// to check, need return
 
         // Condition 3: check clientConsumptionReportingConfiguration.reportingInterval, timer trigger
-        // In Media Stream handler, reportConsumptionTimer()
-        //// to check, need return
+        if (clientsSessionData[clientId]!!.isConsumptionReport)
+        {
+            Log.i(TAG, "[ConsumptionReporting] IsConsumptionReportingActivated: report triggered by timer v2")
+
+            clientsSessionData[clientId]!!.isConsumptionReport = false
+            return true
+        }
 
         // Condition 4/5:check clientConsumptionReportingConfiguration.locationReporting and clientConsumptionReportingConfiguration.accessReporting
         if(clientsSessionData[clientId]?.serviceAccessInformation!!.clientConsumptionReportingConfiguration.locationReporting
             || clientsSessionData[clientId]?.serviceAccessInformation!!.clientConsumptionReportingConfiguration.accessReporting)
         {
-             return true;
+            Log.i(TAG, "[ConsumptionReporting] IsConsumptionReportingActivated: report triggered by locationReporting/accessReporting")
+            return true
         }
 
-        return false;
+        return false
     }
 
     private fun reportConsumption(msg: Message) {
@@ -405,7 +417,7 @@ class MediaSessionHandlerMessengerService() : Service() {
         if(consumptionReportingApi == null)
         {
             Log.i(TAG, "[ConsumptionReporting] consumptionReportingApi is 【NULL】")
-            return;
+            return
         }
 
         val provisisioningSessionId: String = "2";
@@ -444,6 +456,28 @@ class MediaSessionHandlerMessengerService() : Service() {
             }
         } catch (e: Exception) {
         }
+    }
+
+    fun startConsumptionReportTimer(clientId: Int) {
+        val timer = Timer()
+        clientsSessionData[clientId]?.serviceAccessInformationRequestTimer = timer
+
+        if(clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration?.reportingInterval != null) {
+            var periodSec: UInt? =
+                clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration!!.reportingInterval
+
+            timer.schedule(
+                object : TimerTask() {
+                    override fun run() {
+                        clientsSessionData[clientId]?.isConsumptionReport = true
+                    }
+                },
+                Date(),
+                (periodSec?.times(1000u))!!.toLong()
+            )
+        }
+
+        //// todo:  support cacheControlHeader related flow
     }
 
 }

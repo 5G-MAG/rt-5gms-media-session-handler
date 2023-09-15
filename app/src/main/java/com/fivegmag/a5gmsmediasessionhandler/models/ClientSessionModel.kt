@@ -13,5 +13,7 @@ data class ClientSessionModel(
     var serviceAccessInformationApi: ServiceAccessInformationApi? = null,
     var consumptionReportingApi: ConsumptionReportingApi? = null,
     var serviceAccessInformationResponseHeaders: Headers? = null,
-    var serviceAccessInformationRequestTimer: Timer? = null
+    var serviceAccessInformationRequestTimer: Timer? = null,
+    var consumptionReportingTimer: Timer? = null,
+    var isConsumptionReport: Boolean = false
 )
