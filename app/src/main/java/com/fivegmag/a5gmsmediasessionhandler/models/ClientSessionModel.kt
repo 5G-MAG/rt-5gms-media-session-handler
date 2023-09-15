@@ -1,6 +1,7 @@
 package com.fivegmag.a5gmsmediasessionhandler.models
 
 import android.os.Messenger
+import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmsmediasessionhandler.network.ServiceAccessInformationApi
 import com.fivegmag.a5gmsmediasessionhandler.network.ConsumptionReportingApi
@@ -15,5 +16,6 @@ data class ClientSessionModel(
     var serviceAccessInformationResponseHeaders: Headers? = null,
     var serviceAccessInformationRequestTimer: Timer? = null,
     var consumptionReportingTimer: Timer? = null,
-    var isConsumptionReport: Boolean = false
+    var isConsumptionReport: Boolean = false,
+    var playbackState: String = PlayerStates.UNKNOWN
 )

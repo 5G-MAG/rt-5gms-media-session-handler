@@ -15,6 +15,7 @@ import android.content.Intent
 import android.os.*
 import android.util.Log
 import android.widget.Toast
+import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.helpers.Utils
 import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
@@ -99,15 +100,17 @@ class MediaSessionHandlerMessengerService() : Service() {
         }
 
         private fun handleStatusMessage(msg: Message) {
-
+            val sendingUid = msg.sendingUid;
             val bundle: Bundle = msg.data as Bundle
             val state: String = bundle.getString("playbackState", "")
+            Log.i(TAG, "[ConsumptionReporting] playbackState updated【$state】")
             Toast.makeText(
                 applicationContext,
                 "Media Session Handler Service received state message: $state",
                 Toast.LENGTH_SHORT
             ).show()
 
+            clientsSessionData[msg.sendingUid]!!.playbackState = state
         }
 
 
@@ -368,9 +371,14 @@ class MediaSessionHandlerMessengerService() : Service() {
             return false
         }
 
-        // Condition 1/2: Start/stop of consumption of a downlink streaming session
-        // In Media Stream handler, when condition 1/2 occur, reportConsumption
-        //// to check, need return
+        // Condition 1&2: start/stop of consumption of a downlink streaming session
+        val state: String = clientsSessionData[clientId]!!.playbackState
+        if (PlayerStates.PLAYING == state || PlayerStates.ENDED == state )
+        {
+            Log.i(TAG, "[ConsumptionReporting] IsConsumptionReportingActivated: report triggered by play status【${state}】 v2")
+            clientsSessionData[clientId]!!.playbackState = PlayerStates.UNKNOWN
+            return true
+        }
 
         // Condition 3: check clientConsumptionReportingConfiguration.reportingInterval, timer trigger
         if (clientsSessionData[clientId]!!.isConsumptionReport)
@@ -381,7 +389,7 @@ class MediaSessionHandlerMessengerService() : Service() {
             return true
         }
 
-        // Condition 4/5:check clientConsumptionReportingConfiguration.locationReporting and clientConsumptionReportingConfiguration.accessReporting
+        // Condition 4&5:check clientConsumptionReportingConfiguration.locationReporting and clientConsumptionReportingConfiguration.accessReporting
         if(clientsSessionData[clientId]?.serviceAccessInformation!!.clientConsumptionReportingConfiguration.locationReporting
             || clientsSessionData[clientId]?.serviceAccessInformation!!.clientConsumptionReportingConfiguration.accessReporting)
         {
