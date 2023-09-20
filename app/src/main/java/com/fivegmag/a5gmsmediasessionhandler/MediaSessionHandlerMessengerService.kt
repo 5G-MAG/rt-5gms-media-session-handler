@@ -381,11 +381,11 @@ class MediaSessionHandlerMessengerService() : Service() {
         }
 
         // Condition 3: check clientConsumptionReportingConfiguration.reportingInterval, timer trigger
-        if (clientsSessionData[clientId]!!.isConsumptionReport)
+        if (clientsSessionData[clientId]!!.isConsumptionReportByTimer)
         {
             Log.i(TAG, "[ConsumptionReporting] IsConsumptionReportingActivated: report triggered by timer v2")
 
-            clientsSessionData[clientId]!!.isConsumptionReport = false
+            clientsSessionData[clientId]!!.isConsumptionReportByTimer = false
             return true
         }
 
@@ -412,13 +412,16 @@ class MediaSessionHandlerMessengerService() : Service() {
         bundle.classLoader = ConsumptionReporting::class.java.classLoader
         val dataReporting: ConsumptionReporting? = bundle.getParcelable("consumptionData")
 
-        Log.i(TAG, "[ConsumptionReporting] reportConsumption ClientId: ${dataReporting?.reportingClientId}.")
+        Log.i(TAG, "[ConsumptionReporting] reportConsumption: ClientId[${dataReporting?.reportingClientId}] , " +
+                "Entry[${dataReporting?.mediaPlayerEntry}], " +
+                "startTime[${dataReporting?.consumptionReportingUnits?.get(0)?.startTime}]," +
+                "duration[${dataReporting?.consumptionReportingUnits?.get(0)?.duration}]"
+        )
         Toast.makeText(
             applicationContext,
             "MSH recv Consumption-ID: ${dataReporting?.reportingClientId}",
             Toast.LENGTH_LONG
         ).show()
-
 
         // call m5 report consumption to AF - TS26.512 Clause 4.7.4
         val consumptionReportingApi: ConsumptionReportingApi? = clientsSessionData[sendingUid]?.consumptionReportingApi
@@ -473,11 +476,12 @@ class MediaSessionHandlerMessengerService() : Service() {
         if(clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration?.reportingInterval != null) {
             var periodSec: UInt? =
                 clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration!!.reportingInterval
+            Log.i(TAG, "[ConsumptionReporting] startConsumptionReportTimer periodSec: $periodSec.")
 
             timer.schedule(
                 object : TimerTask() {
                     override fun run() {
-                        clientsSessionData[clientId]?.isConsumptionReport = true
+                        clientsSessionData[clientId]?.isConsumptionReportByTimer = true
                     }
                 },
                 Date(),
