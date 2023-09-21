@@ -415,8 +415,11 @@ class MediaSessionHandlerMessengerService() : Service() {
         Log.i(TAG, "[ConsumptionReporting] reportConsumption: ClientId[${dataReporting?.reportingClientId}] , " +
                 "Entry[${dataReporting?.mediaPlayerEntry}], " +
                 "startTime[${dataReporting?.consumptionReportingUnits?.get(0)?.startTime}]," +
-                "duration[${dataReporting?.consumptionReportingUnits?.get(0)?.duration}]"
+                "duration[${dataReporting?.consumptionReportingUnits?.get(0)?.duration}]," +
+                "ipAddr[${dataReporting?.consumptionReportingUnits?.get(0)?.mediaEndpointAddress?.ipv4Addr}/" +
+                "${dataReporting?.consumptionReportingUnits?.get(0)?.mediaEndpointAddress?.ipv6Addr}]"
         )
+
         Toast.makeText(
             applicationContext,
             "MSH recv Consumption-ID: ${dataReporting?.reportingClientId}",
@@ -466,6 +469,7 @@ class MediaSessionHandlerMessengerService() : Service() {
                 clientsSessionData[clientId]?.consumptionReportingApi = retrofit.create(ConsumptionReportingApi::class.java)
             }
         } catch (e: Exception) {
+            Log.e(TAG, "[ConsumptionReporting] onException of createRetrofitForConsumpReport")
         }
     }
 
@@ -473,7 +477,7 @@ class MediaSessionHandlerMessengerService() : Service() {
         val timer = Timer()
         clientsSessionData[clientId]?.serviceAccessInformationRequestTimer = timer
 
-        if(clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration?.reportingInterval != null) {
+        if(clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration?.reportingInterval != 0U) {
             var periodSec: UInt? =
                 clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration!!.reportingInterval
             Log.i(TAG, "[ConsumptionReporting] startConsumptionReportTimer periodSec: $periodSec.")
@@ -484,8 +488,8 @@ class MediaSessionHandlerMessengerService() : Service() {
                         clientsSessionData[clientId]?.isConsumptionReportByTimer = true
                     }
                 },
-                Date(),
-                (periodSec?.times(1000u))!!.toLong()
+                0,
+                (periodSec?.times(1000U))!!.toLong()
             )
         }
 
