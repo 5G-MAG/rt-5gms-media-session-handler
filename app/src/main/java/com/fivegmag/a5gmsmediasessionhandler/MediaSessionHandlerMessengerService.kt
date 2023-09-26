@@ -15,25 +15,37 @@ import android.content.Intent
 import android.os.*
 import android.util.Log
 import android.widget.Toast
+import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.helpers.Utils
 import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
+import com.fivegmag.a5gmscommonlibrary.models.ConsumptionReporting
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionModel
 import com.fivegmag.a5gmsmediasessionhandler.network.HeaderInterceptor
 import com.fivegmag.a5gmsmediasessionhandler.network.ServiceAccessInformationApi
+import com.fivegmag.a5gmsmediasessionhandler.network.ConsumptionReportingApi
+
 import okhttp3.Headers
+import okhttp3.ResponseBody
 import okhttp3.OkHttpClient
 import retrofit2.Call
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+
 import java.util.Timer
+import java.util.Date
 import java.util.TimerTask
+
+import kotlin.math.abs
+import kotlin.random.Random
 
 
 const val TAG = "5GMS Media Session Handler"
+const val SamplePercentageMax: Float    = 100.0F;
+const val EPSILON: Float                = 0.0001F;
 
 /**
  * Create a bound service when you want to interact with the service from activities and other components in your application
@@ -74,6 +86,7 @@ class MediaSessionHandlerMessengerService() : Service() {
                 )
 
                 SessionHandlerMessageTypes.SET_M5_ENDPOINT -> setM5Endpoint(msg)
+                SessionHandlerMessageTypes.CONSUMPTION_REPORTING_MESSAGE -> reportConsumption(msg)
                 else -> super.handleMessage(msg)
             }
         }
@@ -87,15 +100,17 @@ class MediaSessionHandlerMessengerService() : Service() {
         }
 
         private fun handleStatusMessage(msg: Message) {
-
+            val sendingUid = msg.sendingUid;
             val bundle: Bundle = msg.data as Bundle
             val state: String = bundle.getString("playbackState", "")
+            Log.i(TAG, "[ConsumptionReporting] playbackState updated【$state】")
             Toast.makeText(
                 applicationContext,
                 "Media Session Handler Service received state message: $state",
                 Toast.LENGTH_SHORT
             ).show()
 
+            clientsSessionData[msg.sendingUid]!!.playbackState = state
         }
 
 
@@ -123,6 +138,10 @@ class MediaSessionHandlerMessengerService() : Service() {
                     val resource =
                         handleServiceAccessResponse(response, sendingUid, provisioningSessionId)
 
+                    // create Retrofit for ConsumptionReporting, and start ConsumptionReport Timer
+                    createRetrofitForConsumpReport(sendingUid)
+                    startConsumptionReportTimer(sendingUid)
+
                     // Trigger the playback by providing all available entry points
                     val msgResponse: Message = Message.obtain(
                         null,
@@ -140,10 +159,10 @@ class MediaSessionHandlerMessengerService() : Service() {
                         msgResponse.data = responseBundle
                         responseMessenger.send(msgResponse)
                     }
-
                 }
 
                 override fun onFailure(call: Call<ServiceAccessInformation?>, t: Throwable) {
+                    Log.i(TAG, "debug onFailure")
                     call.cancel()
                 }
             })
@@ -253,7 +272,7 @@ class MediaSessionHandlerMessengerService() : Service() {
 
         /**
          * Reset a client session once a new playback session is started. Remove the ServiceAccessInformation
-         * for the corresponding client id and reset all metric reporting timers.
+         * for the corresponding client id and reset all metric/comsumption reporting timers.
          *
          * @param clientId
          */
@@ -263,6 +282,8 @@ class MediaSessionHandlerMessengerService() : Service() {
                 clientsSessionData[clientId]?.serviceAccessInformation = null
                 clientsSessionData[clientId]?.serviceAccessInformationRequestTimer?.cancel()
                 clientsSessionData[clientId]?.serviceAccessInformationRequestTimer = null
+                clientsSessionData[clientId]?.consumptionReportingTimer?.cancel()
+                clientsSessionData[clientId]?.consumptionReportingTimer = null
                 clientsSessionData[clientId]?.serviceAccessInformationResponseHeaders = null
             }
         }
@@ -302,5 +323,177 @@ class MediaSessionHandlerMessengerService() : Service() {
         return mMessenger.binder
     }
 
+    /** If the consumption reporting procedure is activated. Refer to TS26.512 Clause 4.7.4
+     * When the clientConsumptionReportingConfiguration.samplePercentage value is 100, the Media Session Handler shall activate the consumption reporting procedure.
+     * If the samplePercentage is less than 100, the Media Session Handler shall generate a random number which is uniformly distributed in the range of 0 to 100,
+     * and the Media Session Handler shall activate the consumption report procedure when the generated random number is of a lower value than the samplePercentage value.
+     */
+    private fun isConsumptionReportingActivated(clientId: Int): Boolean {
+        //if(currentServiceAccessInformation.isInitialized)
+        if(clientsSessionData[clientId]?.serviceAccessInformation == null) {
+            Log.i(TAG, "[ConsumptionReporting] IsConsumptionReportingActivated: ServiceAccessInformation is 【NULL】")
+            return false
+        }
+
+        // check if the samplePercentage in ServiceAccessInformation.clientConsumptionReportingConfiguration is valid
+        var samplePercentage: Float =  clientsSessionData[clientId]?.serviceAccessInformation!!.clientConsumptionReportingConfiguration.samplePercentage;
+        if(samplePercentage > SamplePercentageMax || samplePercentage < 0)
+        {
+            Log.i(TAG, "[ConsumptionReporting] Invaild samplePercentage[$samplePercentage] in ServiceAccessInformation.clientConsumptionReportingConfiguration")
+            return false;
+        }
+
+        // if samplePercentage is 100, MSH shall activate the consumption reporting procedure
+        if(abs(SamplePercentageMax - samplePercentage) < EPSILON)
+        {
+            Log.i(TAG, "[ConsumptionReporting] SamplePercentage==SamplePercentageMax, always report")
+            return true;
+        }
+
+        // if the generated random number is of a lower value than the samplePercentage value
+        val randomFloat:Float     = Random.nextFloat()
+        val randomInt:Int         = Random.nextInt(0, SamplePercentageMax.toInt())
+        val randomValue:Float     = randomInt - 1 + randomFloat
+        Log.i(TAG, "[ConsumptionReporting] isConsumptionReportingActivated:myRandomValue[$randomValue],samplePercentage[$samplePercentage]")
+
+        return randomValue < samplePercentage
+    }
+
+    /** Refer to TS26.512 Clause 4.7.4 TS26.501 Clause 5.6.3
+        If the consumption reporting procedure is activated, the Media Session Handler shall submit a consumption report to the 5GMSd AF
+        when any of the 5 conditions occur
+     */
+    private fun isNeedReportConsumption(clientId: Int): Boolean {
+        // check IsConsumptionReportingActivated
+        if (!isConsumptionReportingActivated(clientId))
+        {
+            Log.i(TAG, "[ConsumptionReporting] IsConsumptionReportingActivated is 【FALSE】")
+            return false
+        }
+
+        // Condition 1&2: start/stop of consumption of a downlink streaming session
+        val state: String = clientsSessionData[clientId]!!.playbackState
+        if (PlayerStates.PLAYING == state || PlayerStates.ENDED == state )
+        {
+            Log.i(TAG, "[ConsumptionReporting] IsConsumptionReportingActivated: report triggered by play status【${state}】 v2")
+            clientsSessionData[clientId]!!.playbackState = PlayerStates.UNKNOWN
+            return true
+        }
+
+        // Condition 3: check clientConsumptionReportingConfiguration.reportingInterval, timer trigger
+        if (clientsSessionData[clientId]!!.isConsumptionReportByTimer)
+        {
+            Log.i(TAG, "[ConsumptionReporting] IsConsumptionReportingActivated: report triggered by timer v2")
+
+            clientsSessionData[clientId]!!.isConsumptionReportByTimer = false
+            return true
+        }
+
+        // Condition 4&5:check clientConsumptionReportingConfiguration.locationReporting and clientConsumptionReportingConfiguration.accessReporting
+        if(clientsSessionData[clientId]?.serviceAccessInformation!!.clientConsumptionReportingConfiguration.locationReporting
+            || clientsSessionData[clientId]?.serviceAccessInformation!!.clientConsumptionReportingConfiguration.accessReporting)
+        {
+            Log.i(TAG, "[ConsumptionReporting] IsConsumptionReportingActivated: report triggered by locationReporting/accessReporting")
+            return true
+        }
+
+        return false
+    }
+
+    private fun reportConsumption(msg: Message) {
+        val sendingUid = msg.sendingUid;
+        if (!isNeedReportConsumption(sendingUid))
+        {
+            Log.i(TAG, "[ConsumptionReporting] Not need ReportConsumption")
+            return
+        }
+
+        val bundle: Bundle = msg.data
+        bundle.classLoader = ConsumptionReporting::class.java.classLoader
+        val dataReporting: ConsumptionReporting? = bundle.getParcelable("consumptionData")
+
+        Log.i(TAG, "[ConsumptionReporting] reportConsumption: ClientId[${dataReporting?.reportingClientId}] , " +
+                "Entry[${dataReporting?.mediaPlayerEntry}], " +
+                "startTime[${dataReporting?.consumptionReportingUnits?.get(0)?.startTime}]," +
+                "duration[${dataReporting?.consumptionReportingUnits?.get(0)?.duration}]," +
+                "ipAddr[${dataReporting?.consumptionReportingUnits?.get(0)?.mediaEndpointAddress?.ipv4Addr}/" +
+                "${dataReporting?.consumptionReportingUnits?.get(0)?.mediaEndpointAddress?.ipv6Addr}]"
+        )
+
+        Toast.makeText(
+            applicationContext,
+            "MSH recv Consumption-ID: ${dataReporting?.reportingClientId}",
+            Toast.LENGTH_LONG
+        ).show()
+
+        // call m5 report consumption to AF - TS26.512 Clause 4.7.4
+        val consumptionReportingApi: ConsumptionReportingApi? = clientsSessionData[sendingUid]?.consumptionReportingApi
+        if(consumptionReportingApi == null)
+        {
+            Log.i(TAG, "[ConsumptionReporting] consumptionReportingApi is 【NULL】")
+            return
+        }
+
+        val provisisioningSessionId: String = "2";
+        val call: Call<ResponseBody>? = consumptionReportingApi.postConsumptionReporting(provisisioningSessionId, dataReporting?.reportingClientId);
+
+        call?.enqueue(object : retrofit2.Callback<ResponseBody> {
+            override fun onResponse(
+                call: Call<ResponseBody?>,
+                response: Response<ResponseBody?>
+            ) {
+                Log.i(TAG, "[ConsumptionReporting] resp from AF:" + response.body()?.string())
+            }
+
+            override fun onFailure(call: Call<ResponseBody?>, t: Throwable) {
+                Log.i(TAG, "[ConsumptionReporting] onFailure")
+                call.cancel()
+            }
+        })
+    }
+    
+    private fun createRetrofitForConsumpReport(clientId: Int) {
+        try {
+            var consumpReportUrl: String = "";
+            if(clientsSessionData[clientId]?.serviceAccessInformation!!.clientConsumptionReportingConfiguration.serverAddresses.isNotEmpty())
+            {
+                consumpReportUrl = clientsSessionData[clientId]?.serviceAccessInformation!!.clientConsumptionReportingConfiguration.serverAddresses[0];
+            }
+            Log.i(TAG, "[ConsumptionReporting] createRetrofitForConsumpReport URL: $consumpReportUrl.")
+
+            if (consumpReportUrl != "") {
+                val retrofit = retrofitBuilder
+                    .baseUrl(consumpReportUrl)
+                    .build()
+
+                clientsSessionData[clientId]?.consumptionReportingApi = retrofit.create(ConsumptionReportingApi::class.java)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "[ConsumptionReporting] onException of createRetrofitForConsumpReport")
+        }
+    }
+
+    fun startConsumptionReportTimer(clientId: Int) {
+        val timer = Timer()
+        clientsSessionData[clientId]?.serviceAccessInformationRequestTimer = timer
+
+        if(clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration?.reportingInterval != 0U) {
+            var periodSec: UInt? =
+                clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration!!.reportingInterval
+            Log.i(TAG, "[ConsumptionReporting] startConsumptionReportTimer periodSec: $periodSec.")
+
+            timer.schedule(
+                object : TimerTask() {
+                    override fun run() {
+                        clientsSessionData[clientId]?.isConsumptionReportByTimer = true
+                    }
+                },
+                0,
+                (periodSec?.times(1000U))!!.toLong()
+            )
+        }
+
+        //// todo:  support cacheControlHeader related flow
+    }
 
 }
