@@ -15,8 +15,6 @@ import android.content.Intent
 import android.os.*
 import android.util.Log
 import android.widget.Toast
-import com.fivegmag.a5gmscommonlibrary.consumptionReporting.ConsumptionReport
-import com.fivegmag.a5gmscommonlibrary.consumptionReporting.ConsumptionReportRequest
 import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.helpers.Utils
@@ -302,8 +300,7 @@ class MediaSessionHandlerMessengerService() : Service() {
                     object : TimerTask() {
                         override fun run() {
                             requestConsumptionReportFromClient(
-                                clientId,
-                                clientConsumptionReportingConfiguration
+                                clientId
                             )
                         }
                     },
@@ -337,23 +334,14 @@ class MediaSessionHandlerMessengerService() : Service() {
     }
 
     private fun requestConsumptionReportFromClient(
-        clientId: Int,
-        clientConsumptionReportingConfiguration: ClientConsumptionReportingConfiguration
+        clientId: Int
     ) {
         val msg: Message = Message.obtain(
             null,
             SessionHandlerMessageTypes.GET_CONSUMPTION_REPORT
         )
         val bundle = Bundle()
-
-
         val messenger = clientsSessionData[clientId]?.messenger
-        val consumptionReportRequest = ConsumptionReportRequest()
-        consumptionReportRequest.accessReporting =
-            clientConsumptionReportingConfiguration.accessReporting
-        consumptionReportRequest.locationReporting =
-            clientConsumptionReportingConfiguration.locationReporting
-        bundle.putParcelable("data", consumptionReportRequest)
         msg.data = bundle
         msg.replyTo = mMessenger
         try {
@@ -365,7 +353,6 @@ class MediaSessionHandlerMessengerService() : Service() {
         } catch (e: RemoteException) {
             e.printStackTrace()
         }
-
     }
 
     private fun handleConsumptionReportMessage(msg: Message) {
