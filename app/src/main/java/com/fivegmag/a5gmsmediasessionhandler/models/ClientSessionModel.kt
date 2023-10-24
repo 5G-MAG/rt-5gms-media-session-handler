@@ -12,10 +12,9 @@ data class ClientSessionModel(
     var messenger: Messenger?,
     var serviceAccessInformation: ServiceAccessInformation? = null,
     var serviceAccessInformationApi: ServiceAccessInformationApi? = null,
-    var consumptionReportingApi: ConsumptionReportingApi? = null,
     var serviceAccessInformationResponseHeaders: Headers? = null,
     var serviceAccessInformationRequestTimer: Timer? = null,
+    var consumptionReportingApi: ConsumptionReportingApi? = null,
     var consumptionReportingTimer: Timer? = null,
-    var isConsumptionReportByTimer: Boolean = false,
     var playbackState: String = PlayerStates.UNKNOWN
 )
