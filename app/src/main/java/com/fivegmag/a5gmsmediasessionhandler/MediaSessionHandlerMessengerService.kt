@@ -39,9 +39,6 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.Timer
 import java.util.TimerTask
 
-import kotlin.math.abs
-import kotlin.random.Random
-
 
 const val TAG = "5GMS Media Session Handler"
 
@@ -271,7 +268,7 @@ class MediaSessionHandlerMessengerService() : Service() {
 
         /**
          * Reset a client session once a new playback session is started. Remove the ServiceAccessInformation
-         * for the corresponding client id and reset all metric/comsumption reporting timers.
+         * for the corresponding client id and reset all metric/consumption reporting timers.
          *
          * @param clientId
          */
