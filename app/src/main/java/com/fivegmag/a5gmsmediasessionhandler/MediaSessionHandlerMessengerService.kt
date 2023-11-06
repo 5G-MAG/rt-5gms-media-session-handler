@@ -20,6 +20,8 @@ import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.helpers.Utils
 import com.fivegmag.a5gmscommonlibrary.models.ClientConsumptionReportingConfiguration
 import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
+import com.fivegmag.a5gmscommonlibrary.models.PlaybackConsumptionReportingConfiguration
+import com.fivegmag.a5gmscommonlibrary.models.PlaybackRequest
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionModel
@@ -147,7 +149,18 @@ class MediaSessionHandlerMessengerService() : Service() {
 
                     val responseBundle = Bundle()
                     if (finalEntryPoints != null && finalEntryPoints.size > 0) {
-                        responseBundle.putParcelableArrayList("entryPoints", finalEntryPoints)
+                        var playbackConsumptionReportingConfiguration =
+                            PlaybackConsumptionReportingConfiguration()
+                        if (resource?.clientConsumptionReportingConfiguration != null) {
+                            playbackConsumptionReportingConfiguration.accessReporting = resource.clientConsumptionReportingConfiguration!!.accessReporting
+                            playbackConsumptionReportingConfiguration.locationReporting = resource.clientConsumptionReportingConfiguration!!.locationReporting
+                        }
+                        val playbackRequest =
+                            PlaybackRequest(
+                                finalEntryPoints,
+                                playbackConsumptionReportingConfiguration
+                            )
+                        responseBundle.putParcelable("playbackRequest", playbackRequest)
                         msgResponse.data = responseBundle
                         responseMessenger.send(msgResponse)
                     }
@@ -263,7 +276,6 @@ class MediaSessionHandlerMessengerService() : Service() {
                 },
                 maxAgeValue * 1000
             )
-
         }
 
         /**
@@ -315,7 +327,6 @@ class MediaSessionHandlerMessengerService() : Service() {
                     retrofit.create(ConsumptionReportingApi::class.java)
             }
         }
-
     }
 
     private fun shouldReportAccordingToSamplePercentage(samplePercentage: Float?): Boolean {
@@ -338,6 +349,13 @@ class MediaSessionHandlerMessengerService() : Service() {
             SessionHandlerMessageTypes.GET_CONSUMPTION_REPORT
         )
         val bundle = Bundle()
+        val locationReporting =
+            clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration?.locationReporting == true
+        val accessReporting =
+            clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration?.accessReporting == true
+        val consumptionReportingConfiguration =
+            PlaybackConsumptionReportingConfiguration(accessReporting, locationReporting)
+        bundle.putParcelable("playbackConsumptionReportingConfiguration", consumptionReportingConfiguration)
         val messenger = clientsSessionData[clientId]?.messenger
         msg.data = bundle
         msg.replyTo = mMessenger
