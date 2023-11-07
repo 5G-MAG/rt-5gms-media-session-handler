@@ -97,7 +97,7 @@ class MediaSessionHandlerMessengerService() : Service() {
         }
 
         private fun handleStatusMessage(msg: Message) {
-            val sendingUid = msg.sendingUid;
+            val sendingUid = msg.sendingUid
             val bundle: Bundle = msg.data as Bundle
             val state: String = bundle.getString("playbackState", "")
             Log.i(TAG, "[ConsumptionReporting] playbackState updated【$state】")
@@ -108,10 +108,29 @@ class MediaSessionHandlerMessengerService() : Service() {
             ).show()
 
             when (state) {
-                PlayerStates.READY -> startConsumptionReportingTimer(sendingUid)
+                PlayerStates.ENDED -> {
+                    stopConsumptionReportingTimer(sendingUid)
+                }
+
+                PlayerStates.READY -> {
+                    initializeNewPlaybackSession(sendingUid)
+                }
             }
         }
 
+        private fun initializeNewPlaybackSession(clientId: Int) {
+            if (clientsSessionData[clientId] != null && clientsSessionData[clientId]?.initializedSession == false) {
+
+                // Set AF endpoint for consumption reporting
+                setConsumptionReportingEndpoint(clientId)
+
+                // Start consumption reporting
+                initializeConsumptionReportingTimer(clientId, 0)
+
+                clientsSessionData[clientId]?.initializedSession = true
+            }
+
+        }
 
         private fun handleStartPlaybackByServiceListEntryMessage(msg: Message) {
             val bundle: Bundle = msg.data
@@ -119,7 +138,9 @@ class MediaSessionHandlerMessengerService() : Service() {
             val serviceListEntry: ServiceListEntry? = bundle.getParcelable("serviceListEntry")
             val responseMessenger: Messenger = msg.replyTo
             val sendingUid = msg.sendingUid;
-            resetClientSession(sendingUid)
+
+            finalizeCurrentPlaybackSession(sendingUid)
+
             val provisioningSessionId: String = serviceListEntry!!.provisioningSessionId
             val call: Call<ServiceAccessInformation>? =
                 clientsSessionData[msg.sendingUid]?.serviceAccessInformationApi?.fetchServiceAccessInformation(
@@ -149,11 +170,13 @@ class MediaSessionHandlerMessengerService() : Service() {
 
                     val responseBundle = Bundle()
                     if (finalEntryPoints != null && finalEntryPoints.size > 0) {
-                        var playbackConsumptionReportingConfiguration =
+                        val playbackConsumptionReportingConfiguration =
                             PlaybackConsumptionReportingConfiguration()
                         if (resource?.clientConsumptionReportingConfiguration != null) {
-                            playbackConsumptionReportingConfiguration.accessReporting = resource.clientConsumptionReportingConfiguration!!.accessReporting
-                            playbackConsumptionReportingConfiguration.locationReporting = resource.clientConsumptionReportingConfiguration!!.locationReporting
+                            playbackConsumptionReportingConfiguration.accessReporting =
+                                resource.clientConsumptionReportingConfiguration!!.accessReporting
+                            playbackConsumptionReportingConfiguration.locationReporting =
+                                resource.clientConsumptionReportingConfiguration!!.locationReporting
                         }
                         val playbackRequest =
                             PlaybackRequest(
@@ -171,6 +194,18 @@ class MediaSessionHandlerMessengerService() : Service() {
                     call.cancel()
                 }
             })
+        }
+
+        private fun finalizeCurrentPlaybackSession(clientId: Int) {
+            if (clientsSessionData[clientId] != null) {
+                Log.i(TAG, "Resetting information for client $clientId")
+                clientsSessionData[clientId]?.serviceAccessInformation = null
+                clientsSessionData[clientId]?.serviceAccessInformationRequestTimer?.cancel()
+                clientsSessionData[clientId]?.serviceAccessInformationRequestTimer = null
+                clientsSessionData[clientId]?.serviceAccessInformationResponseHeaders = null
+                clientsSessionData[clientId]?.initializedSession = false
+                stopConsumptionReportingTimer(clientId)
+            }
         }
 
         /**
@@ -227,7 +262,7 @@ class MediaSessionHandlerMessengerService() : Service() {
             provisioningSessionId: String
         ) {
             val cacheControlHeader = headers.get("cache-control") ?: return
-            val cacheControlHeaderItems = cacheControlHeader.split(',');
+            val cacheControlHeaderItems = cacheControlHeader.split(',')
             val maxAgeHeader = cacheControlHeaderItems.filter { it.trim().startsWith("max-age=") }
 
             if (maxAgeHeader.isEmpty()) {
@@ -278,25 +313,22 @@ class MediaSessionHandlerMessengerService() : Service() {
             )
         }
 
-        /**
-         * Reset a client session once a new playback session is started. Remove the ServiceAccessInformation
-         * for the corresponding client id and reset all metric/consumption reporting timers.
-         *
-         * @param clientId
-         */
-        private fun resetClientSession(clientId: Int) {
-            if (clientsSessionData[clientId] != null) {
-                Log.i(TAG, "Resetting information for client $clientId")
-                clientsSessionData[clientId]?.serviceAccessInformation = null
-                clientsSessionData[clientId]?.serviceAccessInformationRequestTimer?.cancel()
-                clientsSessionData[clientId]?.serviceAccessInformationRequestTimer = null
-                clientsSessionData[clientId]?.serviceAccessInformationResponseHeaders = null
-                clientsSessionData[clientId]?.consumptionReportingTimer?.cancel()
-                clientsSessionData[clientId]?.consumptionReportingTimer = null
+        private fun setConsumptionReportingEndpoint(clientId: Int) {
+            val clientConsumptionReportingConfiguration: ClientConsumptionReportingConfiguration? =
+                clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration
+            // Select one of the servers to report the metrics to
+            var serverAddress =
+                clientConsumptionReportingConfiguration?.serverAddresses?.random()
+            // Add a "/" in the end if not present
+            serverAddress = serverAddress?.let { utils.addTrailingSlashIfNeeded(it) }
+            val retrofit = serverAddress?.let { retrofitBuilder.baseUrl(it).build() }
+            if (retrofit != null) {
+                clientsSessionData[clientId]?.consumptionReportingApi =
+                    retrofit.create(ConsumptionReportingApi::class.java)
             }
         }
 
-        private fun startConsumptionReportingTimer(clientId: Int) {
+        private fun initializeConsumptionReportingTimer(clientId: Int, delay: Long? = null) {
             val clientConsumptionReportingConfiguration: ClientConsumptionReportingConfiguration? =
                 clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration
 
@@ -304,29 +336,43 @@ class MediaSessionHandlerMessengerService() : Service() {
                 clientConsumptionReportingConfiguration.reportingInterval!! > 0 &&
                 shouldReportAccordingToSamplePercentage(clientConsumptionReportingConfiguration.samplePercentage)
             ) {
-                val timer = Timer()
-                timer.scheduleAtFixedRate(
-                    object : TimerTask() {
-                        override fun run() {
-                            requestConsumptionReportFromClient(
-                                clientId
-                            )
-                        }
-                    },
-                    0,
-                    clientConsumptionReportingConfiguration.reportingInterval!!.times(1000).toLong()
-                )
-                clientsSessionData[clientId]?.consumptionReportingTimer = timer
-                // Select one of the servers to report the metrics to
-                var serverAddress =
-                    clientConsumptionReportingConfiguration.serverAddresses.random()
-                // Add a "/" in the end if not present
-                serverAddress = utils.addTrailingSlashIfNeeded(serverAddress)
-                val retrofit = retrofitBuilder.baseUrl(serverAddress).build()
-                clientsSessionData[clientId]?.consumptionReportingApi =
-                    retrofit.create(ConsumptionReportingApi::class.java)
+                startConsumptionReportingTimer(clientId, delay)
             }
         }
+
+    }
+
+    private fun startConsumptionReportingTimer(
+        clientId: Int,
+        delay: Long? = null
+    ) {
+        val clientConsumptionReportingConfiguration: ClientConsumptionReportingConfiguration =
+            clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration
+                ?: return
+        val timer = Timer()
+        val reportingInterval =
+            clientConsumptionReportingConfiguration.reportingInterval!!.times(1000).toLong()
+        var finalDelay = delay
+        if (finalDelay == null) {
+            finalDelay = reportingInterval
+        }
+        timer.scheduleAtFixedRate(
+            object : TimerTask() {
+                override fun run() {
+                    requestConsumptionReportFromClient(
+                        clientId
+                    )
+                }
+            },
+            finalDelay,
+            reportingInterval
+        )
+        clientsSessionData[clientId]?.consumptionReportingTimer = timer
+    }
+
+    private fun stopConsumptionReportingTimer(clientId: Int) {
+        clientsSessionData[clientId]?.consumptionReportingTimer?.cancel()
+        clientsSessionData[clientId]?.consumptionReportingTimer = null
     }
 
     private fun shouldReportAccordingToSamplePercentage(samplePercentage: Float?): Boolean {
@@ -355,7 +401,10 @@ class MediaSessionHandlerMessengerService() : Service() {
             clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration?.accessReporting == true
         val consumptionReportingConfiguration =
             PlaybackConsumptionReportingConfiguration(accessReporting, locationReporting)
-        bundle.putParcelable("playbackConsumptionReportingConfiguration", consumptionReportingConfiguration)
+        bundle.putParcelable(
+            "playbackConsumptionReportingConfiguration",
+            consumptionReportingConfiguration
+        )
         val messenger = clientsSessionData[clientId]?.messenger
         msg.data = bundle
         msg.replyTo = mMessenger
@@ -375,11 +424,21 @@ class MediaSessionHandlerMessengerService() : Service() {
         val consumptionReport: String? =
             bundle.getString("consumptionReport")
         val sendingUid = msg.sendingUid
+
+        if (clientsSessionData[sendingUid]?.serviceAccessInformation?.clientConsumptionReportingConfiguration == null) {
+            return
+        }
+
+        // Reset the timer once we received a report
+        stopConsumptionReportingTimer(sendingUid)
+        startConsumptionReportingTimer(sendingUid)
+
         val clientSessionModel = clientsSessionData[sendingUid]
         val provisioningSessionId =
             clientSessionModel?.serviceAccessInformation?.provisioningSessionId
         val mediaType = MediaType.parse("application/json")
-        val requestBody: RequestBody? = consumptionReport?.let { RequestBody.create(mediaType, it) }
+        val requestBody: RequestBody? =
+            consumptionReport?.let { RequestBody.create(mediaType, it) }
 
         if (clientSessionModel?.consumptionReportingApi != null) {
             val call: Call<Void>? =
