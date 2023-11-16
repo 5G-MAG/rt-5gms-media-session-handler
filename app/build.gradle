@@ -12,7 +12,7 @@ android {
         minSdk 29
         targetSdk 33
         versionCode 1
-        versionName "1.0.0"
+        versionName "1.0.2"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -43,10 +43,23 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 
     // 5GMAG
-    implementation 'com.fivegmag:a5gmscommonlibrary:1.0.0'
+    implementation 'com.fivegmag:a5gmscommonlibrary:1.0.2'
 
     // Retrofit
     def retrofit_version = "2.9.0"
     implementation "com.squareup.retrofit2:retrofit:$retrofit_version"
     implementation "com.squareup.retrofit2:converter-gson:$retrofit_version"
+}
+
+task CaptureLibraryVersion {
+    def libDef = project.configurations.getByName('implementation').allDependencies.matching {
+        it.group.equals("com.fivegmag")
+    }
+    if (libDef.size() > 0) {
+        android.buildTypes.each {
+            libDef.forEach { item ->
+                it.buildConfigField 'String', "LIB_VERSION_" + item.name, "\"${item.version}\""
+            }
+        }
+    }
 }

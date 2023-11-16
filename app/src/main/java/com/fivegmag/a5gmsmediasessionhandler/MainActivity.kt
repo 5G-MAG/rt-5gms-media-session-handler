@@ -9,12 +9,35 @@ https://drive.google.com/file/d/1cinCiA778IErENZ3JN52VFW-1ffHpx7Z/view
 
 package com.fivegmag.a5gmsmediasessionhandler
 
+import android.content.pm.PackageManager
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.util.Log
+import android.widget.TextView
+
+const val TAG_MEDIA_SESSION_HANDLER = "5GMS Aware Application"
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        setApplicationVersionNumber()
+        printDependenciesVersionNumbers()
+    }
+
+    private fun setApplicationVersionNumber() {
+        try {
+            val packageInfo = packageManager.getPackageInfo(packageName, 0)
+            val versionName = packageInfo.versionName
+            val versionTextView = findViewById<TextView>(R.id.versionNumber)
+            val versionText = getString(R.string.versionTextField, versionName)
+            versionTextView.text = versionText
+        } catch (e: PackageManager.NameNotFoundException) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun printDependenciesVersionNumbers() {
+        Log.d(TAG_MEDIA_SESSION_HANDLER, "5GMS Common Library Version: ${BuildConfig.LIB_VERSION_a5gmscommonlibrary}")
     }
 }
