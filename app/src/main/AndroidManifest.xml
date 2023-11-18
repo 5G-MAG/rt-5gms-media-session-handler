@@ -43,6 +43,9 @@
                 <action android:name="com.fivegmag.a5gmsmediasessionhandler.Service" />
             </intent-filter>
         </service>
+        <meta-data
+            android:name="preloaded_fonts"
+            android:resource="@array/preloaded_fonts" />
     </application>
 
 </manifest>
