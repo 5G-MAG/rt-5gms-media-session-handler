@@ -15,9 +15,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="52dp"
-            android:scrollbarStyle="insideInset"
+            android:fontFamily="@font/poppins"
             android:paddingStart="16dp"
             android:paddingEnd="16dp"
+            android:scrollbarStyle="insideInset"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
