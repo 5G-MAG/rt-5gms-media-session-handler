@@ -222,7 +222,8 @@ class MediaSessionHandlerMessengerService() : Service() {
             provisioningSessionId: String
         ): ServiceAccessInformation? {
             val headers = response.headers()
-
+            // TODO Verify that this is not copy by reference and objects are the same
+            var previousServiceAccessInformation: ServiceAccessInformation? = clientsSessionData[sendingUid]?.serviceAccessInformation
 
             // Save the ServiceAccessInformation if it has changed
             val resource: ServiceAccessInformation? = response.body()
@@ -233,6 +234,12 @@ class MediaSessionHandlerMessengerService() : Service() {
             ) {
                 clientsSessionData[sendingUid]?.serviceAccessInformation = resource
             }
+
+            handleConsumptionReportingChanges(
+                previousServiceAccessInformation.clientConsumptionReportingConfiguration,
+                clientsSessionData[sendingUid]?.serviceAccessInformation?.clientConsumptionReportingConfiguration,
+                sendingUid
+            )
 
 
             // Start the re-requesting of the Service Access Information according to the max-age header
@@ -246,6 +253,77 @@ class MediaSessionHandlerMessengerService() : Service() {
             clientsSessionData[sendingUid]?.serviceAccessInformationResponseHeaders = headers
 
             return clientsSessionData[sendingUid]?.serviceAccessInformation
+        }
+
+        /**
+         *
+         *
+         *
+         */
+        private fun handleConsumptionReportingChanges(
+            currentClientConsumptionReportingConfiguration: ClientConsumptionReportingConfiguration?,
+            updatedClientConsumptionReportingConfiguration: ClientConsumptionReportingConfiguration?,
+            clientId: Int
+        ) {
+            // there was no clientConsumptionReporting yet
+
+            // there is no clientConsumptionReporting anymore
+
+            // location or access reporting has changed update the representation in the Media Stream Handler
+            if (currentClientConsumptionReportingConfiguration != null && updatedClientConsumptionReportingConfiguration != null) {
+                if (currentClientConsumptionReportingConfiguration.accessReporting != updatedClientConsumptionReportingConfiguration.accessReporting || currentClientConsumptionReportingConfiguration.locationReporting != updatedClientConsumptionReportingConfiguration.locationReporting) {
+                    updatePlaybackConsumptionReportingConfiguration(
+                        clientId,
+                        updatedClientConsumptionReportingConfiguration
+                    )
+                }
+
+                // if sample percentage is set to 0 stop consumption reporting
+                if (updatedClientConsumptionReportingConfiguration.reportingInterval!! <= 0) {
+                    stopConsumptionReportingTimer(clientId)
+                }
+
+                // if sample percentage is set to 100 start consumption reporting for all connected clients
+                if (updatedClientConsumptionReportingConfiguration.reportingInterval >= 100) {
+                    startConsumptionReportingTimer(clientId)
+                }
+
+                // updates of the reporting interval are handled automatically when stopping / starting the timer
+
+            }
+        }
+
+        private fun updatePlaybackConsumptionReportingConfiguration(
+            clientId: Int,
+            updatedClientConsumptionReportingConfiguration: ClientConsumptionReportingConfiguration
+        ) {
+            val msg: Message = Message.obtain(
+                null,
+                SessionHandlerMessageTypes.UPDATE_PLAYBACK_CONSUMPTION_REPORTING_CONFIGURATION
+            )
+            val bundle = Bundle()
+            val locationReporting =
+                updatedClientConsumptionReportingConfiguration.locationReporting
+            val accessReporting =
+                updatedClientConsumptionReportingConfiguration.accessReporting
+            val consumptionReportingConfiguration =
+                PlaybackConsumptionReportingConfiguration(accessReporting, locationReporting)
+            bundle.putParcelable(
+                "playbackConsumptionReportingConfiguration",
+                consumptionReportingConfiguration
+            )
+            val messenger = clientsSessionData[clientId]?.messenger
+            msg.data = bundle
+            msg.replyTo = mMessenger
+            try {
+                Log.i(
+                    TAG,
+                    "Request consumption report for client $clientId"
+                )
+                messenger?.send(msg)
+            } catch (e: RemoteException) {
+                e.printStackTrace()
+            }
         }
 
 
