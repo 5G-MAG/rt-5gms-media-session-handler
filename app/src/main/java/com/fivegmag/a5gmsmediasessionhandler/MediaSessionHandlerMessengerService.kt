@@ -76,7 +76,7 @@ class MediaSessionHandlerMessengerService() : Service() {
         override fun handleMessage(msg: Message) {
             when (msg.what) {
                 SessionHandlerMessageTypes.REGISTER_CLIENT -> registerClient(msg)
-                SessionHandlerMessageTypes.UNREGISTER_CLIENT -> registerClient(msg)
+                SessionHandlerMessageTypes.UNREGISTER_CLIENT -> unregisterClient(msg)
                 SessionHandlerMessageTypes.STATUS_MESSAGE -> handleStatusMessage(msg)
                 SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE -> handleStartPlaybackByServiceListEntryMessage(
                     msg
