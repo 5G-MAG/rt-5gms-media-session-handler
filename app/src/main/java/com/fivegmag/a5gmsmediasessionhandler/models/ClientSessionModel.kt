@@ -16,6 +16,7 @@ data class ClientSessionModel(
     var serviceAccessInformationRequestTimer: Timer? = null,
     var consumptionReportingApi: ConsumptionReportingApi? = null,
     var consumptionReportingTimer: Timer? = null,
+    var consumptionReportingSelectedServerAddress : String? = null,
     var playbackState: String = PlayerStates.UNKNOWN,
     var initializedSession: Boolean = false
 )

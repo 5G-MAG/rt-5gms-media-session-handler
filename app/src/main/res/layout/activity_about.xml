@@ -11,8 +11,8 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        tools:layout_editor_absoluteX="25dp"
-        tools:layout_editor_absoluteY="0dp">
+        tools:layout_editor_absoluteX="-163dp"
+        tools:layout_editor_absoluteY="133dp">
 
 
         <androidx.constraintlayout.widget.ConstraintLayout
@@ -26,6 +26,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
+                android:fontFamily="@font/poppins_semibold"
                 android:gravity="center"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
@@ -42,11 +43,10 @@
                 android:layout_width="109dp"
                 android:layout_height="26dp"
                 android:layout_marginTop="8dp"
-                android:layout_marginEnd="8dp"
                 android:text="@string/version_text_field"
-                android:textAlignment="viewStart"
+                android:textAlignment="viewEnd"
                 android:textStyle="bold"
-                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintEnd_toEndOf="@+id/imageView"
                 app:layout_constraintTop_toBottomOf="@+id/imageView" />
 
             <TextView
@@ -55,8 +55,9 @@
                 android:layout_height="32dp"
                 android:layout_marginStart="16dp"
                 android:layout_marginTop="4dp"
+                android:fontFamily="@font/poppins_semibold"
                 android:text="@string/contact"
-                android:textColor="#2196F3"
+                android:textColor="@color/fivegmag_blue"
                 android:textSize="16sp"
                 android:textStyle="bold"
                 app:layout_constraintStart_toStartOf="parent"
@@ -78,12 +79,12 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="3dp"
                 android:autoLink="web"
                 android:text="@string/twitter_label"
                 android:textColor="@color/fivegmag_blue"
                 app:layout_constraintStart_toEndOf="@+id/twitterIcon"
-                app:layout_constraintTop_toBottomOf="@+id/contactHeadline" />
+                app:layout_constraintTop_toTopOf="@+id/twitterIcon" />
 
             <ImageView
                 android:id="@+id/linkedInIcon"
@@ -100,11 +101,11 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="10dp"
-                android:layout_marginTop="28dp"
+                android:layout_marginTop="4dp"
                 android:text="@string/linked_in_label"
                 android:textColor="@color/fivegmag_blue"
                 app:layout_constraintStart_toEndOf="@+id/linkedInIcon"
-                app:layout_constraintTop_toBottomOf="@+id/twitterLink" />
+                app:layout_constraintTop_toTopOf="@+id/linkedInIcon" />
 
             <ImageView
                 android:id="@+id/slackIcon"
@@ -121,11 +122,11 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="10dp"
-                android:layout_marginTop="30dp"
+                android:layout_marginTop="5dp"
                 android:text="@string/slack_label"
                 android:textColor="@color/fivegmag_blue"
                 app:layout_constraintStart_toEndOf="@+id/slackIcon"
-                app:layout_constraintTop_toBottomOf="@+id/linkedInLink" />
+                app:layout_constraintTop_toTopOf="@+id/slackIcon" />
 
             <ImageView
                 android:id="@+id/websiteIcon"
@@ -142,11 +143,11 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="10dp"
-                android:layout_marginTop="30dp"
+                android:layout_marginTop="6dp"
                 android:text="@string/website_label"
                 android:textColor="@color/fivegmag_blue"
                 app:layout_constraintStart_toEndOf="@+id/websiteIcon"
-                app:layout_constraintTop_toBottomOf="@+id/slackLink" />
+                app:layout_constraintTop_toTopOf="@+id/websiteIcon" />
 
 
             <TextView
@@ -155,8 +156,9 @@
                 android:layout_height="32dp"
                 android:layout_marginStart="16dp"
                 android:layout_marginTop="20dp"
+                android:fontFamily="@font/poppins_semibold"
                 android:text="@string/authors"
-                android:textColor="#2196F3"
+                android:textColor="@color/fivegmag_blue"
                 android:textSize="16sp"
                 android:textStyle="bold"
                 app:layout_constraintStart_toStartOf="parent"
@@ -168,8 +170,11 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="16dp"
                 android:layout_marginTop="12dp"
+                android:layout_marginEnd="16dp"
                 android:autoLink="web"
                 android:text="@string/authors_text"
+                android:textColorLink="@color/fivegmag_blue"
+                app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toBottomOf="@+id/authorsHeadline" />
 
@@ -189,8 +194,9 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="16dp"
                 android:layout_marginTop="24dp"
+                android:fontFamily="@font/poppins_semibold"
                 android:text="@string/project"
-                android:textColor="#2196F3"
+                android:textColor="@color/fivegmag_blue"
                 android:textSize="16sp"
                 android:textStyle="bold"
                 app:layout_constraintStart_toStartOf="parent"
@@ -223,8 +229,9 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="16dp"
                 android:layout_marginTop="8dp"
+                android:fontFamily="@font/poppins_semibold"
                 android:text="@string/description"
-                android:textColor="#2196F3"
+                android:textColor="@color/fivegmag_blue"
                 android:textSize="16sp"
                 android:textStyle="bold"
                 app:layout_constraintStart_toStartOf="parent"
@@ -234,8 +241,9 @@
                 android:id="@+id/descriptionText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
+                android:layout_marginStart="8dp"
                 android:layout_marginTop="12dp"
+                android:layout_marginEnd="8dp"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toBottomOf="@+id/descriptionHeadline" />
