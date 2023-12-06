@@ -318,6 +318,14 @@ class MediaSessionHandlerMessengerService() : Service() {
                 startConsumptionReportingTimer(clientId)
             }
 
+            // if sample percentage was previously zero and is now higher than zero evaluate again
+            if (updatedClientConsumptionReportingConfiguration.samplePercentage!! > 0 && previousClientConsumptionReportingConfiguration.samplePercentage <= 0 && shouldReportAccordingToSamplePercentage(
+                    updatedClientConsumptionReportingConfiguration.samplePercentage
+                )
+            ) {
+                startConsumptionReportingTimer(clientId)
+            }
+
             // updates of the reporting interval are handled automatically when stopping / starting the timer
         }
     }
