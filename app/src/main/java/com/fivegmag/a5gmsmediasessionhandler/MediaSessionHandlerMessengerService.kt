@@ -570,7 +570,13 @@ class MediaSessionHandlerMessengerService() : Service() {
 
             call?.enqueue(object : retrofit2.Callback<Void?> {
                 override fun onResponse(call: Call<Void?>, response: Response<Void?>) {
-                    Log.d(TAG, "Successfully send consumption report")
+                    when(val responseCode = response.code()) {
+                        204 -> Log.d(TAG, "Consumption Report: Accepted")
+                        400 -> Log.d(TAG, "Consumption Report: Bad Request")
+                        415 -> Log.d(TAG, "Consumption Report: Unsupported Media Type")
+                        else -> Log.d(TAG, "Consumption Report: Return code $responseCode")
+                    }
+
                 }
 
                 override fun onFailure(call: Call<Void?>, t: Throwable) {
