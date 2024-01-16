@@ -18,17 +18,11 @@ import android.widget.Toast
 import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.helpers.Utils
-import com.fivegmag.a5gmscommonlibrary.models.ClientConsumptionReportingConfiguration
-import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
-import com.fivegmag.a5gmscommonlibrary.models.PlaybackConsumptionReportingConfiguration
-import com.fivegmag.a5gmscommonlibrary.models.PlaybackRequest
-import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
-import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
+import com.fivegmag.a5gmscommonlibrary.models.*
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionModel
+import com.fivegmag.a5gmsmediasessionhandler.network.ConsumptionReportingApi
 import com.fivegmag.a5gmsmediasessionhandler.network.HeaderInterceptor
 import com.fivegmag.a5gmsmediasessionhandler.network.ServiceAccessInformationApi
-import com.fivegmag.a5gmsmediasessionhandler.network.ConsumptionReportingApi
-
 import okhttp3.Headers
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
@@ -37,9 +31,9 @@ import retrofit2.Call
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-
-import java.util.Timer
-import java.util.TimerTask
+import java.text.SimpleDateFormat
+import java.util.*
+import kotlin.math.abs
 
 
 const val TAG = "5GMS Media Session Handler"
@@ -376,15 +370,39 @@ class MediaSessionHandlerMessengerService() : Service() {
         sendingUid: Int,
         provisioningSessionId: String
     ) {
-        val cacheControlHeader = headers.get("cache-control") ?: return
-        val cacheControlHeaderItems = cacheControlHeader.split(',')
-        val maxAgeHeader = cacheControlHeaderItems.filter { it.trim().startsWith("max-age=") }
+        var periodInSec: Long = 0
 
-        if (maxAgeHeader.isEmpty()) {
-            return
+        val cacheControlHeader = headers.get("cache-control")
+        if(null != cacheControlHeader)
+        {
+            val cacheControlHeaderItems = cacheControlHeader.split(',')
+            val maxAgeHeader = cacheControlHeaderItems.filter { it.trim().startsWith("max-age=") }
+
+            if (maxAgeHeader.isEmpty()) {
+                return
+            }
+
+            periodInSec = maxAgeHeader[0].trim().substring(8).toLong()
+            println("dsl>periodInSec[$periodInSec] from cacheControlHeader")
+        }
+        else
+        {
+            val dateInExpHeader = headers.get("Expires") 
+
+            val dateFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z")
+            dateFormat.timeZone = TimeZone.getTimeZone("GMT");
+
+            val date = Date(System.currentTimeMillis())
+            val curDate = dateFormat.format(date)
+
+            val date1 = dateFormat.parse(curDate)
+            val date2 = dateFormat.parse(dateInExpHeader)
+            val difference = abs(date1.time - date2.time)
+            val periodInSec = difference / 1000
+
+            println("dsl>periodInSec[$periodInSec]  from cacheControlHeader; curDate[$curDate], dateInExpHeader[$dateInExpHeader]")
         }
 
-        val maxAgeValue = maxAgeHeader[0].trim().substring(8).toLong()
         val timer = Timer()
         clientsSessionData[sendingUid]?.serviceAccessInformationRequestTimer = timer
 
@@ -424,7 +442,7 @@ class MediaSessionHandlerMessengerService() : Service() {
                     })
                 }
             },
-            maxAgeValue * 1000
+            periodInSec * 1000
         )
     }
 
