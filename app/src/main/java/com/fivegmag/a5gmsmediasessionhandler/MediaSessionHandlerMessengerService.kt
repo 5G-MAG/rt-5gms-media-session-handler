@@ -383,11 +383,10 @@ class MediaSessionHandlerMessengerService() : Service() {
             }
 
             periodInSec = maxAgeHeader[0].trim().substring(8).toLong()
-            println("dsl>periodInSec[$periodInSec] from cacheControlHeader")
         }
         else
         {
-            val dateInExpHeader = headers.get("Expires") 
+            val dateInExpHeader = headers.get("Expires")
 
             val dateFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z")
             dateFormat.timeZone = TimeZone.getTimeZone("GMT");
@@ -399,8 +398,6 @@ class MediaSessionHandlerMessengerService() : Service() {
             val date2 = dateFormat.parse(dateInExpHeader)
             val difference = abs(date1.time - date2.time)
             val periodInSec = difference / 1000
-
-            println("dsl>periodInSec[$periodInSec]  from cacheControlHeader; curDate[$curDate], dateInExpHeader[$dateInExpHeader]")
         }
 
         val timer = Timer()
