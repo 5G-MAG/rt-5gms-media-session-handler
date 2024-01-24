@@ -31,6 +31,7 @@ import retrofit2.Call
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.lang.Long.min
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.abs
@@ -232,6 +233,8 @@ class MediaSessionHandlerMessengerService() : Service() {
         sendingUid: Int,
         provisioningSessionId: String
     ): ServiceAccessInformation? {
+        println("dsl>handleServiceAccessResponse")
+
         val headers = response.headers()
         val previousServiceAccessInformation: ServiceAccessInformation? =
             clientsSessionData[sendingUid]?.serviceAccessInformation
@@ -370,7 +373,10 @@ class MediaSessionHandlerMessengerService() : Service() {
         sendingUid: Int,
         provisioningSessionId: String
     ) {
-        var periodInSec: Long = 0
+        Log.d(TAG, "dsl-startServiceAccessInformationUpdateTimer")
+
+        var periodByMaxAgeHeader: Long = -1
+        var periodByExpiresHeader: Long = -1
 
         val cacheControlHeader = headers.get("cache-control")
         if(null != cacheControlHeader)
@@ -378,18 +384,16 @@ class MediaSessionHandlerMessengerService() : Service() {
             val cacheControlHeaderItems = cacheControlHeader.split(',')
             val maxAgeHeader = cacheControlHeaderItems.filter { it.trim().startsWith("max-age=") }
 
-            if (maxAgeHeader.isEmpty()) {
-                return
+            if (maxAgeHeader.isNotEmpty()) {
+                periodByMaxAgeHeader = maxAgeHeader[0].trim().substring(8).toLong()
             }
-
-            periodInSec = maxAgeHeader[0].trim().substring(8).toLong()
         }
-        else
-        {
-            val dateInExpHeader = headers.get("Expires")
 
+        val dateInExpHeader = headers.get("Expires")
+        if(null != dateInExpHeader)
+        {
             val dateFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z")
-            dateFormat.timeZone = TimeZone.getTimeZone("GMT");
+            dateFormat.timeZone = TimeZone.getTimeZone("GMT")
 
             val date = Date(System.currentTimeMillis())
             val curDate = dateFormat.format(date)
@@ -397,7 +401,21 @@ class MediaSessionHandlerMessengerService() : Service() {
             val date1 = dateFormat.parse(curDate)
             val date2 = dateFormat.parse(dateInExpHeader)
             val difference = abs(date1.time - date2.time)
-            val periodInSec = difference / 1000
+            periodByExpiresHeader = difference / 1000
+        }
+
+        var periodInSec: Long = 10
+        if (-1 != periodByMaxAgeHeader.toInt()
+            && -1 != periodByExpiresHeader.toInt()) {
+            periodInSec = min(periodByMaxAgeHeader, periodByExpiresHeader)
+        }
+        else if(-1 != periodByMaxAgeHeader.toInt())
+        {
+            periodInSec = periodByMaxAgeHeader
+        }
+        else if(-1 != periodByExpiresHeader.toInt())
+        {
+            periodInSec = periodByExpiresHeader
         }
 
         val timer = Timer()
@@ -417,6 +435,7 @@ class MediaSessionHandlerMessengerService() : Service() {
                             )
                         )
 
+                    Log.d(TAG, "dsl-schedule:fetchServiceAccessInformation")
                     call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
                         override fun onResponse(
                             call: Call<ServiceAccessInformation?>,
