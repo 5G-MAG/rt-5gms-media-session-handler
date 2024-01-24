@@ -233,8 +233,6 @@ class MediaSessionHandlerMessengerService() : Service() {
         sendingUid: Int,
         provisioningSessionId: String
     ): ServiceAccessInformation? {
-        println("dsl>handleServiceAccessResponse")
-
         val headers = response.headers()
         val previousServiceAccessInformation: ServiceAccessInformation? =
             clientsSessionData[sendingUid]?.serviceAccessInformation
@@ -363,6 +361,11 @@ class MediaSessionHandlerMessengerService() : Service() {
 
     /**
      * Starts the timer task to re-request the the Service Access Information
+     * For the cacheControlHeader and expiresHeader:
+     * 1.In case both max-age and expires are present the values shall be translated to absolute times, compared and the earlier value shall be used.
+     * 2.In case none of the headers are defined, we use a static configurable refresh value like 10 minutes.
+     * 3.If in Cache-Control header the max-age = 0, keep this behavior as we are expecting the server wants us to do an immediate refresh. We are expecting a different value of max-age with the next response.
+     * 4.If an age header is present, that value shall be subtracted from the value defined in max-age.
      *
      * @param headers
      * @param sendingUid
@@ -373,8 +376,6 @@ class MediaSessionHandlerMessengerService() : Service() {
         sendingUid: Int,
         provisioningSessionId: String
     ) {
-        Log.d(TAG, "dsl-startServiceAccessInformationUpdateTimer")
-
         var periodByMaxAgeHeader: Long = -1
         var periodByExpiresHeader: Long = -1
 
@@ -387,6 +388,12 @@ class MediaSessionHandlerMessengerService() : Service() {
             if (maxAgeHeader.isNotEmpty()) {
                 periodByMaxAgeHeader = maxAgeHeader[0].trim().substring(8).toLong()
             }
+        }
+
+        val ageHeader = headers.get("Age")
+        if(null != ageHeader && -1 != periodByMaxAgeHeader.toInt())
+        {
+            periodByMaxAgeHeader -= ageHeader.toLong();
         }
 
         val dateInExpHeader = headers.get("Expires")
@@ -435,7 +442,6 @@ class MediaSessionHandlerMessengerService() : Service() {
                             )
                         )
 
-                    Log.d(TAG, "dsl-schedule:fetchServiceAccessInformation")
                     call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
                         override fun onResponse(
                             call: Call<ServiceAccessInformation?>,
