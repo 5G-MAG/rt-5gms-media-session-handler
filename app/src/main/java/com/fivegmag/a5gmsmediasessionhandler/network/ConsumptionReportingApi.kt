@@ -9,5 +9,18 @@ https://drive.google.com/file/d/1cinCiA778IErENZ3JN52VFW-1ffHpx7Z/view
 
 package com.fivegmag.a5gmsmediasessionhandler.network
 
+import okhttp3.RequestBody
+import retrofit2.Call
+import retrofit2.http.Body
+import retrofit2.http.Headers
+import retrofit2.http.Path
+import retrofit2.http.POST
+
 interface ConsumptionReportingApi {
+    @Headers("Content-Type: application/json")
+    @POST("consumption-reporting/{provisioningSessionId}")
+    fun sendConsumptionReport(
+        @Path("provisioningSessionId") provisioningSessionId: String?,
+        @Body requestBody: RequestBody?
+    ): Call<Void>?
 }
