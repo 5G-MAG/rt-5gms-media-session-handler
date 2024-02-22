@@ -10,7 +10,6 @@ https://drive.google.com/file/d/1cinCiA778IErENZ3JN52VFW-1ffHpx7Z/view
 package com.fivegmag.a5gmsmediasessionhandler
 
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.os.*
 import android.util.Log
@@ -18,7 +17,12 @@ import android.widget.Toast
 import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.helpers.Utils
-import com.fivegmag.a5gmscommonlibrary.models.*
+import com.fivegmag.a5gmscommonlibrary.models.ClientConsumptionReportingConfiguration
+import com.fivegmag.a5gmscommonlibrary.models.PlaybackRequest
+import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
+import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
+import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
+import com.fivegmag.a5gmscommonlibrary.models.PlaybackConsumptionReportingConfiguration
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionModel
 import com.fivegmag.a5gmsmediasessionhandler.network.ConsumptionReportingApi
 import com.fivegmag.a5gmsmediasessionhandler.network.HeaderInterceptor
@@ -33,7 +37,10 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.lang.Long.min
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.TimerTask
+import java.util.TimeZone
+import java.util.Timer
+import java.util.Date
 import kotlin.math.abs
 
 
@@ -63,10 +70,7 @@ class MediaSessionHandlerMessengerService() : Service() {
     /**
      * Handler of incoming messages from clients.
      */
-    inner class IncomingHandler(
-        context: Context,
-        private val applicationContext: Context = context.applicationContext
-    ) : Handler() {
+    inner class IncomingHandler : Handler() {
 
         override fun handleMessage(msg: Message) {
             when (msg.what) {
@@ -127,7 +131,7 @@ class MediaSessionHandlerMessengerService() : Service() {
     private fun initializeConsumptionReportingTimer(clientId: Int, delay: Long? = null) {
         setConsumptionReportingEndpoint(clientId)
 
-        // Do not start the consumption reporting timer if we dont have an endpoint
+        // Do not start the consumption reporting timer if we don't have an endpoint
         if (clientsSessionData[clientId]?.consumptionReportingApi == null) {
             return
         }
@@ -148,7 +152,7 @@ class MediaSessionHandlerMessengerService() : Service() {
         bundle.classLoader = ServiceListEntry::class.java.classLoader
         val serviceListEntry: ServiceListEntry? = bundle.getParcelable("serviceListEntry")
         val responseMessenger: Messenger = msg.replyTo
-        val sendingUid = msg.sendingUid;
+        val sendingUid = msg.sendingUid
 
         resetClientSessionData(sendingUid)
 
@@ -164,7 +168,6 @@ class MediaSessionHandlerMessengerService() : Service() {
                 call: Call<ServiceAccessInformation?>,
                 response: Response<ServiceAccessInformation?>
             ) {
-
                 val resource =
                     handleServiceAccessResponse(response, sendingUid, provisioningSessionId)
 
@@ -304,17 +307,17 @@ class MediaSessionHandlerMessengerService() : Service() {
             }
 
             // if sample percentage is set to 0 or no server addresses are available stop consumption reporting
-            if (updatedClientConsumptionReportingConfiguration.samplePercentage!! <= 0) {
+            if (updatedClientConsumptionReportingConfiguration.samplePercentage <= 0) {
                 stopConsumptionReportingTimer(clientId)
             }
 
             // if sample percentage is set to 100 start consumption reporting
-            if (updatedClientConsumptionReportingConfiguration.samplePercentage!! >= 100) {
+            if (updatedClientConsumptionReportingConfiguration.samplePercentage >= 100) {
                 startConsumptionReportingTimer(clientId)
             }
 
             // if sample percentage was previously zero and is now higher than zero evaluate again
-            if (updatedClientConsumptionReportingConfiguration.samplePercentage!! > 0 && previousClientConsumptionReportingConfiguration.samplePercentage <= 0 && shouldReportAccordingToSamplePercentage(
+            if (updatedClientConsumptionReportingConfiguration.samplePercentage > 0 && previousClientConsumptionReportingConfiguration.samplePercentage <= 0 && shouldReportAccordingToSamplePercentage(
                     updatedClientConsumptionReportingConfiguration.samplePercentage
                 )
             ) {
@@ -380,8 +383,7 @@ class MediaSessionHandlerMessengerService() : Service() {
         var periodByExpiresHeader: Long = -1
 
         val cacheControlHeader = headers.get("cache-control")
-        if(null != cacheControlHeader)
-        {
+        if(null != cacheControlHeader) {
             val cacheControlHeaderItems = cacheControlHeader.split(',')
             val maxAgeHeader = cacheControlHeaderItems.filter { it.trim().startsWith("max-age=") }
 
@@ -391,23 +393,20 @@ class MediaSessionHandlerMessengerService() : Service() {
         }
 
         val ageHeader = headers.get("Age")
-        if(null != ageHeader && -1 != periodByMaxAgeHeader.toInt())
-        {
-            periodByMaxAgeHeader -= ageHeader.toLong();
+        if(null != ageHeader && -1 != periodByMaxAgeHeader.toInt()) {
+            periodByMaxAgeHeader -= ageHeader.toLong()
         }
 
         val dateInExpHeader = headers.get("Expires")
-        if(null != dateInExpHeader)
-        {
+        if(null != dateInExpHeader) {
             val dateFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z")
             dateFormat.timeZone = TimeZone.getTimeZone("GMT")
 
-            val date = Date(System.currentTimeMillis())
-            val curDate = dateFormat.format(date)
+            val currentDate = dateFormat.format(Date(System.currentTimeMillis()))
 
-            val date1 = dateFormat.parse(curDate)
-            val date2 = dateFormat.parse(dateInExpHeader)
-            val difference = abs(date1.time - date2.time)
+            val currentFormattedDate = dateFormat.parse(currentDate)
+            val expHeaderFormattedDate= dateFormat.parse(dateInExpHeader)
+            val difference = abs(currentFormattedDate!!.time - expHeaderFormattedDate!!.time)
             periodByExpiresHeader = difference / 1000
         }
 
@@ -416,12 +415,10 @@ class MediaSessionHandlerMessengerService() : Service() {
             && -1 != periodByExpiresHeader.toInt()) {
             periodInSec = min(periodByMaxAgeHeader, periodByExpiresHeader)
         }
-        else if(-1 != periodByMaxAgeHeader.toInt())
-        {
+        else if(-1 != periodByMaxAgeHeader.toInt()) {
             periodInSec = periodByMaxAgeHeader
         }
-        else if(-1 != periodByExpiresHeader.toInt())
-        {
+        else if(-1 != periodByExpiresHeader.toInt()) {
             periodInSec = periodByExpiresHeader
         }
 
@@ -447,7 +444,6 @@ class MediaSessionHandlerMessengerService() : Service() {
                             call: Call<ServiceAccessInformation?>,
                             response: Response<ServiceAccessInformation?>
                         ) {
-
                             handleServiceAccessResponse(
                                 response,
                                 sendingUid,
@@ -494,7 +490,6 @@ class MediaSessionHandlerMessengerService() : Service() {
     }
 
     private fun startConsumptionReportingTimer(clientId: Int, delay: Long? = null) {
-
         // Endpoint not set
         if (clientsSessionData[clientId]?.consumptionReportingApi == null) {
             setConsumptionReportingEndpoint(clientId)
@@ -656,7 +651,7 @@ class MediaSessionHandlerMessengerService() : Service() {
      */
     override fun onBind(intent: Intent): IBinder? {
         Log.i("MediaSessionHandler-New", "Service bound new")
-        mMessenger = Messenger(IncomingHandler(this))
+        mMessenger = Messenger(IncomingHandler())
         return mMessenger.binder
     }
 }
