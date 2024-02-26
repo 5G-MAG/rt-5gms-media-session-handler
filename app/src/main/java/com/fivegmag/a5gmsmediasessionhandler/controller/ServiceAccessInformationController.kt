@@ -1,26 +1,22 @@
 package com.fivegmag.a5gmsmediasessionhandler.controller
 
-import android.os.Bundle
-import android.os.Message
-import android.os.Messenger
 import android.util.Log
-import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.helpers.Utils
-import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
-import com.fivegmag.a5gmscommonlibrary.models.PlaybackRequest
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionModel
+import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Headers
 import retrofit2.Call
 import retrofit2.Response
 import java.util.Timer
 import java.util.TimerTask
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class ServiceAccessInformationController(
     private val clientsSessionData: HashMap<Int, ClientSessionModel>,
     private val consumptionReportingController: ConsumptionReportingController,
-    private val qoeMetricsReportingController: QoeMetricsReportingController
 ) {
 
     companion object {
@@ -29,82 +25,100 @@ class ServiceAccessInformationController(
 
     private val utils = Utils()
 
-    fun initialize(msg: Message) {
-        val bundle: Bundle = msg.data
-        val responseMessenger: Messenger = msg.replyTo
-        val clientId = msg.sendingUid
-        bundle.classLoader = ServiceListEntry::class.java.classLoader
-        val serviceListEntry: ServiceListEntry? = bundle.getParcelable("serviceListEntry")
+    suspend fun fetchServiceAccessInformation(
+        serviceListEntry: ServiceListEntry?,
+        clientId: Int
+    ): ServiceAccessInformation? {
+
         val provisioningSessionId: String = serviceListEntry!!.provisioningSessionId
         val call: Call<ServiceAccessInformation>? =
-            clientsSessionData[msg.sendingUid]?.serviceAccessInformationApi?.fetchServiceAccessInformation(
+            clientsSessionData[clientId]?.serviceAccessInformationApi?.fetchServiceAccessInformation(
                 provisioningSessionId,
                 null,
                 null
             )
+        return suspendCancellableCoroutine { continuation ->
+            call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
 
-        call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
-            override fun onResponse(
-                call: Call<ServiceAccessInformation?>,
-                response: Response<ServiceAccessInformation?>
-            ) {
-                val serviceAccessInformation =
-                    processServiceAccessInformation(response, clientId, provisioningSessionId)
+                override fun onResponse(
+                    call: Call<ServiceAccessInformation?>,
+                    response: Response<ServiceAccessInformation?>
+                ) {
+                    val serviceAccessInformation =
+                        processServiceAccessInformationResponse(
+                            response,
+                            clientId,
+                            provisioningSessionId
+                        )
 
-                triggerPlayback(serviceListEntry, serviceAccessInformation, responseMessenger)
-                initializeMetricsReporting(serviceAccessInformation, clientId)
+                    // Complete the coroutine with the result
+                    continuation.resume(serviceAccessInformation)
+                }
+
+                override fun onFailure(call: Call<ServiceAccessInformation?>, t: Throwable) {
+                    Log.i(TAG, "Failure when requesting ServiceAccessInformation")
+                    call.cancel()
+
+                    // Complete the coroutine with an exception
+                    continuation.resumeWithException(t)
+                }
+            })
+
+            // Cancel the network request if the coroutine is cancelled
+            continuation.invokeOnCancellation {
+                call?.cancel()
+                continuation.resume(null)
             }
 
-            override fun onFailure(call: Call<ServiceAccessInformation?>, t: Throwable) {
-                Log.i(TAG, "Failure when requesting ServiceAccessInformation")
-                call.cancel()
-            }
-        })
+        }
     }
 
+    private fun processServiceAccessInformationResponse(
+        response: Response<ServiceAccessInformation?>,
+        clientId: Int,
+        provisioningSessionId: String
+    ): ServiceAccessInformation? {
+        val headers = response.headers()
+        val previousServiceAccessInformation: ServiceAccessInformation? =
+            clientsSessionData[clientId]?.serviceAccessInformation
 
-    private fun triggerPlayback(
-        serviceListEntry: ServiceListEntry,
-        serviceAccessInformation: ServiceAccessInformation?,
-        responseMessenger: Messenger
-    ) {
-        // Trigger the playback by providing all available entry points
-        val msgResponse: Message = Message.obtain(
-            null,
-            SessionHandlerMessageTypes.SESSION_HANDLER_TRIGGERS_PLAYBACK
+        // Save the ServiceAccessInformation if it has changed
+        val resource: ServiceAccessInformation? = response.body()
+        if (resource != null && response.code() != 304 && utils.hasResponseChanged(
+                headers,
+                clientsSessionData[clientId]?.serviceAccessInformationResponseHeaders
+            )
+        ) {
+            clientsSessionData[clientId]?.serviceAccessInformation = resource
+
+            // handle changes of the SAI compared to the previous one
+            if (previousServiceAccessInformation != null) {
+                handleServiceAccessInformationChanges(previousServiceAccessInformation, clientId)
+            }
+        }
+
+        // Start the re-requesting of the Service Access Information according to the max-age header
+        startServiceAccessInformationUpdateTimer(
+            headers,
+            clientId,
+            provisioningSessionId
         )
-        var finalEntryPoints: ArrayList<EntryPoint>? = serviceListEntry.entryPoints
-        if (serviceAccessInformation != null && (finalEntryPoints == null || finalEntryPoints.size == 0)) {
-            finalEntryPoints =
-                serviceAccessInformation.streamingAccess.entryPoints
-        }
 
-        val responseBundle = Bundle()
-        if (finalEntryPoints != null && finalEntryPoints.size > 0) {
-            val playbackConsumptionReportingConfiguration =
-                consumptionReportingController.getPlaybackConsumptionReportingConfiguration(
-                    serviceAccessInformation
-                )
-            val playbackRequest =
-                PlaybackRequest(
-                    finalEntryPoints,
-                    playbackConsumptionReportingConfiguration
-                )
-            responseBundle.putParcelable("playbackRequest", playbackRequest)
-            msgResponse.data = responseBundle
-            responseMessenger.send(msgResponse)
-        }
+        // Save current headers
+        clientsSessionData[clientId]?.serviceAccessInformationResponseHeaders = headers
+
+        return clientsSessionData[clientId]?.serviceAccessInformation
     }
 
-    private fun initializeMetricsReporting(
-        serviceAccessInformation: ServiceAccessInformation?,
+    private fun handleServiceAccessInformationChanges(
+        previousServiceAccessInformation: ServiceAccessInformation,
         clientId: Int
     ) {
-        if (serviceAccessInformation != null) {
-            if (serviceAccessInformation.clientMetricsReportingConfigurations != null && serviceAccessInformation.clientMetricsReportingConfigurations!!.size > 0) {
-                qoeMetricsReportingController.requestMetricCapabilities(clientId)
-            }
-        }
+        consumptionReportingController.handleConfigurationChanges(
+            previousServiceAccessInformation.clientConsumptionReportingConfiguration,
+            clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration,
+            clientId
+        )
     }
 
     private fun startServiceAccessInformationUpdateTimer(
@@ -144,7 +158,7 @@ class ServiceAccessInformationController(
                             response: Response<ServiceAccessInformation?>
                         ) {
 
-                            processServiceAccessInformation(
+                            processServiceAccessInformationResponse(
                                 response,
                                 sendingUid,
                                 provisioningSessionId
@@ -164,44 +178,10 @@ class ServiceAccessInformationController(
         )
     }
 
-    private fun processServiceAccessInformation(
-        response: Response<ServiceAccessInformation?>,
-        clientId: Int,
-        provisioningSessionId: String
-    ): ServiceAccessInformation? {
-        val headers = response.headers()
-        val previousServiceAccessInformation: ServiceAccessInformation? =
-            clientsSessionData[clientId]?.serviceAccessInformation
-
-        // Save the ServiceAccessInformation if it has changed
-        val resource: ServiceAccessInformation? = response.body()
-        if (resource != null && response.code() != 304 && utils.hasResponseChanged(
-                headers,
-                clientsSessionData[clientId]?.serviceAccessInformationResponseHeaders
-            )
-        ) {
-            clientsSessionData[clientId]?.serviceAccessInformation = resource
-
-            // handle changes of the SAI compared to the previous one
-            if (previousServiceAccessInformation != null) {
-                consumptionReportingController.handleConsumptionReportingChanges(
-                    previousServiceAccessInformation.clientConsumptionReportingConfiguration,
-                    clientsSessionData[clientId]?.serviceAccessInformation?.clientConsumptionReportingConfiguration,
-                    clientId
-                )
-            }
-        }
-
-        // Start the re-requesting of the Service Access Information according to the max-age header
-        startServiceAccessInformationUpdateTimer(
-            headers,
-            clientId,
-            provisioningSessionId
-        )
-
-        // Save current headers
-        clientsSessionData[clientId]?.serviceAccessInformationResponseHeaders = headers
-
-        return clientsSessionData[clientId]?.serviceAccessInformation
+    fun resetClientSession(clientId: Int) {
+        clientsSessionData[clientId]?.serviceAccessInformation = null
+        clientsSessionData[clientId]?.serviceAccessInformationRequestTimer?.cancel()
+        clientsSessionData[clientId]?.serviceAccessInformationRequestTimer = null
+        clientsSessionData[clientId]?.serviceAccessInformationResponseHeaders = null
     }
 }

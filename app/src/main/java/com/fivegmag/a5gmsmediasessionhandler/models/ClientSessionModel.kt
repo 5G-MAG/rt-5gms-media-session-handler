@@ -12,6 +12,8 @@ import java.util.Timer
 
 data class ClientSessionModel(
     var messenger: Messenger?,
+    var playbackState: String = PlayerStates.UNKNOWN,
+    var initializedSession: Boolean = false,
     var serviceAccessInformation: ServiceAccessInformation? = null,
     var serviceAccessInformationApi: ServiceAccessInformationApi? = null,
     var serviceAccessInformationResponseHeaders: Headers? = null,
@@ -19,8 +21,7 @@ data class ClientSessionModel(
     var consumptionReportingApi: ConsumptionReportingApi? = null,
     var consumptionReportingTimer: Timer? = null,
     var consumptionReportingSelectedServerAddress: String? = null,
-    var playbackState: String = PlayerStates.UNKNOWN,
-    var initializedSession: Boolean = false,
     var qoeMetricsReportingApi: MetricsReportingApi? = null,
-    var qoeMetricsReportingTimer: LinkedList<Timer> = LinkedList()
+    var qoeMetricsReportingTimer: LinkedList<Timer> = LinkedList(),
+    var qoeMetricsReportingSelectedServerAddress: String? = null,
 )

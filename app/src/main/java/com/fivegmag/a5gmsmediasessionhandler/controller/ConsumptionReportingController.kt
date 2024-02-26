@@ -179,6 +179,11 @@ class ConsumptionReportingController(
         clientsSessionData[clientId]?.consumptionReportingTimer = timer
     }
 
+    override fun resetClientSession(clientId: Int) {
+        clientsSessionData[clientId]?.consumptionReportingSelectedServerAddress = null
+        stopConsumptionReportingTimer(clientId)
+    }
+
     fun stopConsumptionReportingTimer(
         clientId: Int
     ) {
@@ -223,7 +228,7 @@ class ConsumptionReportingController(
     /**
      * Once the SAI is updated we need to react to changes in the consumption reporting configuration
      */
-    fun handleConsumptionReportingChanges(
+    fun handleConfigurationChanges(
         previousClientConsumptionReportingConfiguration: ClientConsumptionReportingConfiguration?,
         updatedClientConsumptionReportingConfiguration: ClientConsumptionReportingConfiguration?,
         clientId: Int

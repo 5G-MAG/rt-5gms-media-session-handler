@@ -2,6 +2,7 @@ package com.fivegmag.a5gmsmediasessionhandler.controller
 
 import com.fivegmag.a5gmscommonlibrary.helpers.Utils
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionModel
+import java.lang.Exception
 
 open class ReportingController(
     val clientsSessionData: HashMap<Int, ClientSessionModel>
@@ -19,5 +20,13 @@ open class ReportingController(
         }
 
         return utils.generateRandomFloat() < samplePercentage
+    }
+
+    open fun handleConfigurationChanges() {
+        throw Exception("Implement handleConfigurationChanges()")
+    }
+
+    open fun resetClientSession(clientId: Int) {
+        throw Exception("Implement resetClientSession()")
     }
 }

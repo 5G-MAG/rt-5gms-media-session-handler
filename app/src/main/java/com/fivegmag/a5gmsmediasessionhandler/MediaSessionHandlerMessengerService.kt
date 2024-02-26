@@ -57,35 +57,45 @@ class MediaSessionHandlerMessengerService : Service() {
     ) : Handler() {
 
         override fun handleMessage(msg: Message) {
-            when (msg.what) {
-                SessionHandlerMessageTypes.REGISTER_CLIENT -> sessionController.registerClient(msg)
-                SessionHandlerMessageTypes.UNREGISTER_CLIENT -> sessionController.unregisterClient(
-                    msg
-                )
+            try {
+                when (msg.what) {
+                    SessionHandlerMessageTypes.REGISTER_CLIENT -> sessionController.registerClient(
+                        msg
+                    )
 
-                SessionHandlerMessageTypes.STATUS_MESSAGE -> sessionController.handleStatusMessage(
-                    msg,
-                    applicationContext
-                )
+                    SessionHandlerMessageTypes.UNREGISTER_CLIENT -> sessionController.unregisterClient(
+                        msg
+                    )
 
-                SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE -> sessionController.handleStartPlaybackByServiceListEntryMessage(
-                    msg
-                )
+                    SessionHandlerMessageTypes.STATUS_MESSAGE -> sessionController.handleStatusMessage(
+                        msg,
+                        applicationContext
+                    )
 
-                SessionHandlerMessageTypes.SET_M5_ENDPOINT -> sessionController.setM5Endpoint(msg)
-                SessionHandlerMessageTypes.CONSUMPTION_REPORT -> consumptionReportingController.handleConsumptionReportMessage(
-                    msg
-                )
+                    SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE -> sessionController.handleStartPlaybackByServiceListEntryMessage(
+                        msg
+                    )
 
-                SessionHandlerMessageTypes.REPORT_QOE_METRICS_CAPABILITIES -> qoeMetricsReportingController.handleQoeMetricsCapabilitiesMessage(
-                    msg
-                )
+                    SessionHandlerMessageTypes.SET_M5_ENDPOINT -> sessionController.setM5Endpoint(
+                        msg
+                    )
 
-                SessionHandlerMessageTypes.REPORT_QOE_METRICS -> qoeMetricsReportingController.handleQoeMetricsReportMessage(
-                    msg
-                )
+                    SessionHandlerMessageTypes.CONSUMPTION_REPORT -> consumptionReportingController.handleConsumptionReportMessage(
+                        msg
+                    )
 
-                else -> super.handleMessage(msg)
+                    SessionHandlerMessageTypes.REPORT_QOE_METRICS_CAPABILITIES -> qoeMetricsReportingController.handleQoeMetricsCapabilitiesMessage(
+                        msg
+                    )
+
+                    SessionHandlerMessageTypes.REPORT_QOE_METRICS -> qoeMetricsReportingController.handleQoeMetricsReportMessage(
+                        msg
+                    )
+
+                    else -> super.handleMessage(msg)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, e.message.toString())
             }
         }
     }

@@ -7,6 +7,7 @@ import android.os.RemoteException
 import android.util.Log
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.models.ClientMetricsReportingConfiguration
+import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmscommonlibrary.qoeMetricsReporting.QoeMetricsRequest
 import com.fivegmag.a5gmscommonlibrary.qoeMetricsReporting.QoeMetricsResponse
 import com.fivegmag.a5gmscommonlibrary.qoeMetricsReporting.SchemeSupport
@@ -95,7 +96,18 @@ class QoeMetricsReportingController(
         }
     }
 
-    fun requestMetricCapabilities(clientId: Int) {
+    fun initializeMetricsReporting(
+        serviceAccessInformation: ServiceAccessInformation?,
+        clientId: Int
+    ) {
+        if (serviceAccessInformation != null) {
+            if (serviceAccessInformation.clientMetricsReportingConfigurations != null && serviceAccessInformation.clientMetricsReportingConfigurations!!.size > 0) {
+                requestMetricCapabilities(clientId)
+            }
+        }
+    }
+
+    private fun requestMetricCapabilities(clientId: Int) {
         val msg: Message = Message.obtain(
             null,
             SessionHandlerMessageTypes.GET_QOE_METRICS_CAPABILITIES
@@ -202,6 +214,23 @@ class QoeMetricsReportingController(
         } catch (e: RemoteException) {
             e.printStackTrace()
         }
+    }
 
+    override fun handleConfigurationChanges() {
+
+    }
+
+    override fun resetClientSession(clientId: Int) {
+        clientsSessionData[clientId]?.qoeMetricsReportingSelectedServerAddress = null
+        stopMetricsReportingTimer(clientId)
+    }
+
+    fun stopMetricsReportingTimer(
+        clientId: Int
+    ) {
+        if (clientsSessionData[clientId]?.consumptionReportingTimer != null) {
+            clientsSessionData[clientId]?.consumptionReportingTimer?.cancel()
+            clientsSessionData[clientId]?.consumptionReportingTimer = null
+        }
     }
 }
