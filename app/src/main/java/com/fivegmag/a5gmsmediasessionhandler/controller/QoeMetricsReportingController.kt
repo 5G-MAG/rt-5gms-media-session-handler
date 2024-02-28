@@ -30,7 +30,7 @@ class QoeMetricsReportingController(
     ReportingController(clientsSessionData) {
 
     companion object {
-        const val TAG = "5GMS-ConsumptionReportingController"
+        const val TAG = "5GMS-QoeMetricsReportingController"
     }
 
     fun handleQoeMetricsCapabilitiesMessage(msg: Message) {
@@ -134,6 +134,10 @@ class QoeMetricsReportingController(
         msg.data = bundle
         msg.replyTo = mMessenger
         try {
+            Log.i(
+                ConsumptionReportingController.TAG,
+                "Requesting QoE Metrics Capabilities for client $clientId"
+            )
             messenger?.send(msg)
         } catch (e: RemoteException) {
             e.printStackTrace()
@@ -208,7 +212,7 @@ class QoeMetricsReportingController(
         try {
             Log.i(
                 TAG,
-                "Request metrics for client $clientId and scheme ${clientMetricsReportingConfiguration.scheme}"
+                "Request QoE metrics for client $clientId and scheme ${clientMetricsReportingConfiguration.scheme}"
             )
             messenger?.send(msg)
         } catch (e: RemoteException) {

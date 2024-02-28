@@ -306,7 +306,7 @@ class ConsumptionReportingController(
         try {
             Log.i(
                 TAG,
-                "Request consumption report for client $clientId"
+                "Update consumption reporting configuration for client $clientId"
             )
             messenger?.send(msg)
         } catch (e: RemoteException) {

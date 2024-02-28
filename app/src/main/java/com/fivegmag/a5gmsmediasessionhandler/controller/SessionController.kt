@@ -88,7 +88,7 @@ class SessionController(
         // Trigger the playback by providing all available entry points
         val msgResponse: Message = Message.obtain(
             null,
-            SessionHandlerMessageTypes.SESSION_HANDLER_TRIGGERS_PLAYBACK
+            SessionHandlerMessageTypes.TRIGGER_PLAYBACK
         )
         var finalEntryPoints: ArrayList<EntryPoint>? = serviceListEntry.entryPoints
         if (serviceAccessInformation != null && (finalEntryPoints == null || finalEntryPoints.size == 0)) {
