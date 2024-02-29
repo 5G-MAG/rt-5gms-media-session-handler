@@ -364,11 +364,6 @@ class MediaSessionHandlerMessengerService() : Service() {
 
     /**
      * Starts the timer task to re-request the the Service Access Information
-     * For the cacheControlHeader and expiresHeader:
-     * 1.In case both max-age and expires are present the values shall be translated to absolute times, compared and the earlier value shall be used.
-     * 2.In case none of the headers are defined, we use a static configurable refresh value like 10 minutes.
-     * 3.If in Cache-Control header the max-age = 0, keep this behavior as we are expecting the server wants us to do an immediate refresh. We are expecting a different value of max-age with the next response.
-     * 4.If an age header is present, that value shall be subtracted from the value defined in max-age.
      *
      * @param headers
      * @param sendingUid
@@ -379,48 +374,19 @@ class MediaSessionHandlerMessengerService() : Service() {
         sendingUid: Int,
         provisioningSessionId: String
     ) {
-        var periodByMaxAgeHeader: Long = -1
-        var periodByExpiresHeader: Long = -1
-
-        val cacheControlHeader = headers.get("cache-control")
-        if(null != cacheControlHeader) {
-            val cacheControlHeaderItems = cacheControlHeader.split(',')
-            val maxAgeHeader = cacheControlHeaderItems.filter { it.trim().startsWith("max-age=") }
-
-            if (maxAgeHeader.isNotEmpty()) {
-                periodByMaxAgeHeader = maxAgeHeader[0].trim().substring(8).toLong()
-            }
-        }
+        // Get MaxAge. If an age header is present, that value shall be subtracted from the value defined in max-age.
+        var periodByMaxAgeHeader = getMaxAge(headers)
 
         val ageHeader = headers.get("Age")
         if(null != ageHeader && -1 != periodByMaxAgeHeader.toInt()) {
             periodByMaxAgeHeader -= ageHeader.toLong()
         }
+        
+        // get Expires
+        var periodByExpiresHeader = getExpires(headers)
 
-        val dateInExpHeader = headers.get("Expires")
-        if(null != dateInExpHeader) {
-            val dateFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z")
-            dateFormat.timeZone = TimeZone.getTimeZone("GMT")
-
-            val currentDate = dateFormat.format(Date(System.currentTimeMillis()))
-
-            val currentFormattedDate = dateFormat.parse(currentDate)
-            val expHeaderFormattedDate= dateFormat.parse(dateInExpHeader)
-            val difference = abs(currentFormattedDate!!.time - expHeaderFormattedDate!!.time)
-            periodByExpiresHeader = difference / 1000
-        }
-
-        var periodInSec: Long = 10
-        if (-1 != periodByMaxAgeHeader.toInt()
-            && -1 != periodByExpiresHeader.toInt()) {
-            periodInSec = min(periodByMaxAgeHeader, periodByExpiresHeader)
-        }
-        else if(-1 != periodByMaxAgeHeader.toInt()) {
-            periodInSec = periodByMaxAgeHeader
-        }
-        else if(-1 != periodByExpiresHeader.toInt()) {
-            periodInSec = periodByExpiresHeader
-        }
+        // get RefreshTimerValue and start timer
+        var periodInSec: Long = getRefreshTimerValue(periodByMaxAgeHeader, periodByExpiresHeader)
 
         val timer = Timer()
         clientsSessionData[sendingUid]?.serviceAccessInformationRequestTimer = timer
@@ -462,6 +428,63 @@ class MediaSessionHandlerMessengerService() : Service() {
             },
             periodInSec * 1000
         )
+    }
+
+    /**
+     * For the cacheControlHeader and expiresHeader:
+     * 1.In case both max-age and expires are present the values shall be translated to absolute times, compared and the earlier value shall be used.
+     * 2.In case only one of the headers is present, use it.
+     * 3.In case none of the headers are defined, we use a static configurable refresh value like 10 minutes.
+     */
+    private fun getRefreshTimerValue(
+        periodByMaxAgeHeader: Long,
+        periodByExpiresHeader: Long
+    ): Long {
+        var periodInSec: Long = 10
+        if (-1 != periodByMaxAgeHeader.toInt()
+            && -1 != periodByExpiresHeader.toInt()
+        ) {
+            periodInSec = min(periodByMaxAgeHeader, periodByExpiresHeader)
+        } else if (-1 != periodByMaxAgeHeader.toInt()) {
+            periodInSec = periodByMaxAgeHeader
+        } else if (-1 != periodByExpiresHeader.toInt()) {
+            periodInSec = periodByExpiresHeader
+        }
+	
+        return periodInSec
+    }
+
+    private fun getExpires(headers: Headers): Long {
+        var periodByExpiresHeader : Long = -1
+        val dateInExpHeader = headers.get("Expires")
+        if (null != dateInExpHeader) {
+            val dateFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z")
+            dateFormat.timeZone = TimeZone.getTimeZone("UTC")
+
+            val currentDate = dateFormat.format(Date(System.currentTimeMillis()))
+
+            val currentFormattedDate = dateFormat.parse(currentDate)
+            val expHeaderFormattedDate = dateFormat.parse(dateInExpHeader)
+            val difference = abs(currentFormattedDate!!.time - expHeaderFormattedDate!!.time)
+            periodByExpiresHeader = difference / 1000
+        }
+	
+        return periodByExpiresHeader
+    }
+
+    private fun getMaxAge(headers: Headers): Long {
+        var periodByMaxAgeHeader : Long = -1
+        val cacheControlHeader = headers.get("cache-control")
+        if (null != cacheControlHeader) {
+            val cacheControlHeaderItems = cacheControlHeader.split(',')
+            val maxAgeHeader = cacheControlHeaderItems.filter { it.trim().startsWith("max-age=") }
+
+            if (maxAgeHeader.isNotEmpty()) {
+                periodByMaxAgeHeader = maxAgeHeader[0].trim().substring(8).toLong()
+            }
+        }
+	
+        return periodByMaxAgeHeader
     }
 
     private fun setConsumptionReportingEndpoint(clientId: Int) {
