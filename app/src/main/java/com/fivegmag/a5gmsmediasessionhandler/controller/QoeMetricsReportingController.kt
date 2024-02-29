@@ -110,12 +110,26 @@ class QoeMetricsReportingController(
         val playbackMetricsResponse: QoeMetricsResponse? =
             bundle.getParcelable("qoeMetricsResponse")
         val clientId = msg.sendingUid
+
+        if (clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientMetricsReportingConfigurations == null
+        ) {
+            return
+        }
+
         val clientSessionData = clientsSessionData[clientId] ?: return
         val metricsReportingConfigurationId =
             playbackMetricsResponse?.metricsReportingConfigurationId
         val qoeMetricsReportingSessionDataEntry =
             clientSessionData.qoeMetricsReportingSessionData[metricsReportingConfigurationId]
-        val api = qoeMetricsReportingSessionDataEntry?.api ?: return
+                ?: return
+
+        stopSingleReportingTimer(qoeMetricsReportingSessionDataEntry)
+        val clientMetricsReportingConfiguration =
+            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientMetricsReportingConfigurations?.find { it.metricsReportingConfigurationId == metricsReportingConfigurationId }
+                ?: return
+        startSingleReportingTimer(clientId, null, clientMetricsReportingConfiguration)
+
+        val api = qoeMetricsReportingSessionDataEntry.api ?: return
         val metricsString = playbackMetricsResponse?.metricsString
         val mediaType = MediaType.parse(ContentTypes.XML)
         val requestBody: RequestBody? = metricsString?.let { RequestBody.create(mediaType, it) }
@@ -173,12 +187,12 @@ class QoeMetricsReportingController(
             return
         }
 
-        startReportingTimer(clientId, delay, clientMetricsReportingConfiguration)
+        startSingleReportingTimer(clientId, delay, clientMetricsReportingConfiguration)
     }
 
-    private fun startReportingTimer(
+    private fun startSingleReportingTimer(
         clientId: Int,
-        delay: Long?,
+        delay: Long? = null,
         clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration
     ) {
 
@@ -298,7 +312,91 @@ class QoeMetricsReportingController(
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     override fun handleServiceAccessInformationChanges(serviceAccessInformationUpdatedEvent: ServiceAccessInformationUpdatedEvent) {
-        return
+        val previousClientMetricsReportingConfigurations =
+            serviceAccessInformationUpdatedEvent.previousServiceAccessInformation?.clientMetricsReportingConfigurations
+        val updatedClientMetricsReportingConfigurations =
+            serviceAccessInformationUpdatedEvent.updatedServiceAccessInformation?.clientMetricsReportingConfigurations
+
+        if (previousClientMetricsReportingConfigurations == null || updatedClientMetricsReportingConfigurations == null) {
+            return
+        }
+
+        val clientId = serviceAccessInformationUpdatedEvent.clientId
+
+        // No more reporting configurations. Reset the existing ones
+        handleNoReportingConfigurations(clientId, updatedClientMetricsReportingConfigurations)
+
+        // Check if any of the active metricsReportingConfigurationIds has been removed. If so cancel reporting and remove from list.
+        handleConfigurationRemoval(clientId, updatedClientMetricsReportingConfigurations)
+
+        // Handle updates to existing configurations
+        handleConfigurationUpdate(
+            clientId,
+            updatedClientMetricsReportingConfigurations
+        )
+
+    }
+
+    private fun handleNoReportingConfigurations(
+        clientId: Int,
+        clientMetricsReportingConfigurations: ArrayList<ClientMetricsReportingConfiguration>
+    ) {
+        if (clientMetricsReportingConfigurations.isEmpty()) {
+            resetClientSession(clientId)
+        }
+    }
+
+    private fun handleConfigurationRemoval(
+        clientId: Int,
+        clientMetricsReportingConfigurations: ArrayList<ClientMetricsReportingConfiguration>
+    ) {
+        val qoeMetricsReportingSessionData =
+            clientsSessionData[clientId]?.qoeMetricsReportingSessionData
+        for (key in qoeMetricsReportingSessionData?.keys!!) {
+            val hasKey =
+                clientMetricsReportingConfigurations.find { it.metricsReportingConfigurationId == key }
+            if (hasKey == null) {
+                val qoeMetricsReportingSessionDataEntry = qoeMetricsReportingSessionData[key]
+                if (qoeMetricsReportingSessionDataEntry != null) {
+                    resetSingleQoeMetricsReportingSession(qoeMetricsReportingSessionDataEntry)
+                    qoeMetricsReportingSessionData.remove(key)
+                }
+            }
+        }
+    }
+
+    private fun resetSingleQoeMetricsReportingSession(qoeMetricsReportingSessionDataEntry: QoeMetricsReportingSessionDataEntry) {
+        qoeMetricsReportingSessionDataEntry.reportingTimer?.cancel()
+    }
+
+    private fun handleConfigurationUpdate(
+        clientId: Int,
+        updatedClientMetricsReportingConfigurations: ArrayList<ClientMetricsReportingConfiguration>
+    ) {
+
+        for (updatedConfiguration in updatedClientMetricsReportingConfigurations) {
+            val qoeMetricsReportingSessionDataEntry =
+                clientsSessionData[clientId]?.qoeMetricsReportingSessionData?.get(
+                    updatedConfiguration.metricsReportingConfigurationId
+                )
+
+            // if sample percentage is set to 0 or no server addresses are available stop reporting
+            if (updatedConfiguration.samplePercentage!! <= 0 && qoeMetricsReportingSessionDataEntry != null) {
+                stopSingleReportingTimer(qoeMetricsReportingSessionDataEntry)
+            }
+
+            // if sample percentage is set to 100 start reporting
+            if (updatedConfiguration.samplePercentage!! >= 100 && qoeMetricsReportingSessionDataEntry != null) {
+                startSingleReportingTimer(clientId, 0, updatedConfiguration)
+            }
+
+        }
+
+    }
+
+    private fun stopSingleReportingTimer(qoeMetricsReportingSessionDataEntry: QoeMetricsReportingSessionDataEntry) {
+        qoeMetricsReportingSessionDataEntry.reportingTimer?.cancel()
+        qoeMetricsReportingSessionDataEntry.reportingTimer = null
     }
 
     override fun resetClientSession(clientId: Int) {
@@ -311,7 +409,8 @@ class QoeMetricsReportingController(
             clientsSessionData[clientId]?.qoeMetricsReportingSessionData ?: return
 
         for (qoeMetricsReportingSessionDataEntry in qoeMetricsReportingSessionData.values) {
-            qoeMetricsReportingSessionDataEntry.reportingTimer?.cancel()
+            stopSingleReportingTimer(qoeMetricsReportingSessionDataEntry)
         }
     }
+
 }

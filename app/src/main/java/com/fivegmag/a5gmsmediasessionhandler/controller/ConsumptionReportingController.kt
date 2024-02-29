@@ -207,56 +207,58 @@ class ConsumptionReportingController(
             serviceAccessInformationUpdatedEvent.previousServiceAccessInformation?.clientConsumptionReportingConfiguration
         val updatedClientConsumptionReportingConfiguration =
             serviceAccessInformationUpdatedEvent.updatedServiceAccessInformation?.clientConsumptionReportingConfiguration
-        val clientId = serviceAccessInformationUpdatedEvent.clientId
-        if (previousClientConsumptionReportingConfiguration != null && updatedClientConsumptionReportingConfiguration != null) {
 
-            // location or access reporting has changed update the representation in the Media Stream Handler
-            if (previousClientConsumptionReportingConfiguration.accessReporting != updatedClientConsumptionReportingConfiguration.accessReporting || previousClientConsumptionReportingConfiguration.locationReporting != updatedClientConsumptionReportingConfiguration.locationReporting) {
-                updatePlaybackConsumptionReportingConfiguration(
-                    clientId,
-                    updatedClientConsumptionReportingConfiguration
-                )
-            }
-
-            // if the list of endpoints is empty we stop reporting. No need to check anything else
-            if (updatedClientConsumptionReportingConfiguration.serverAddresses.isEmpty()) {
-                stopReportingTimer(clientId)
-                clientsSessionData[clientId]?.consumptionReportingSessionData?.reportingSelectedServerAddress =
-                    null
-                clientsSessionData[clientId]?.consumptionReportingSessionData?.api = null
-                return
-            }
-
-            // the currently used reporting endpoint has been removed from the list. Pick a new one
-            if (!updatedClientConsumptionReportingConfiguration.serverAddresses.contains(
-                    clientsSessionData[clientId]?.consumptionReportingSessionData?.reportingSelectedServerAddress
-                )
-            ) {
-                setReportingEndpoint(clientId)
-            }
-
-            // if sample percentage is set to 0 or no server addresses are available stop consumption reporting
-            if (updatedClientConsumptionReportingConfiguration.samplePercentage <= 0) {
-                stopReportingTimer(clientId)
-            }
-
-            // if sample percentage is set to 100 start consumption reporting
-            if (updatedClientConsumptionReportingConfiguration.samplePercentage >= 100) {
-                startReportingTimer(clientId)
-            }
-
-            // if sample percentage was previously zero and is now higher than zero evaluate again
-            if (updatedClientConsumptionReportingConfiguration.samplePercentage > 0 && previousClientConsumptionReportingConfiguration.samplePercentage <= 0 && shouldReportAccordingToSamplePercentage(
-                    updatedClientConsumptionReportingConfiguration.samplePercentage
-                )
-            ) {
-                startReportingTimer(clientId)
-            }
-
-            // updates of the reporting interval are handled automatically when stopping / starting the timer
+        if (previousClientConsumptionReportingConfiguration == null || updatedClientConsumptionReportingConfiguration == null) {
+            return
         }
-    }
 
+        val clientId = serviceAccessInformationUpdatedEvent.clientId
+
+        // location or access reporting has changed update the representation in the Media Stream Handler
+        if (previousClientConsumptionReportingConfiguration.accessReporting != updatedClientConsumptionReportingConfiguration.accessReporting || previousClientConsumptionReportingConfiguration.locationReporting != updatedClientConsumptionReportingConfiguration.locationReporting) {
+            updatePlaybackConsumptionReportingConfiguration(
+                clientId,
+                updatedClientConsumptionReportingConfiguration
+            )
+        }
+
+        // if the list of endpoints is empty we stop reporting. No need to check anything else
+        if (updatedClientConsumptionReportingConfiguration.serverAddresses.isEmpty()) {
+            stopReportingTimer(clientId)
+            clientsSessionData[clientId]?.consumptionReportingSessionData?.reportingSelectedServerAddress =
+                null
+            clientsSessionData[clientId]?.consumptionReportingSessionData?.api = null
+            return
+        }
+
+        // the currently used reporting endpoint has been removed from the list. Pick a new one
+        if (!updatedClientConsumptionReportingConfiguration.serverAddresses.contains(
+                clientsSessionData[clientId]?.consumptionReportingSessionData?.reportingSelectedServerAddress
+            )
+        ) {
+            setReportingEndpoint(clientId)
+        }
+
+        // if sample percentage is set to 0 or no server addresses are available stop consumption reporting
+        if (updatedClientConsumptionReportingConfiguration.samplePercentage <= 0) {
+            stopReportingTimer(clientId)
+        }
+
+        // if sample percentage is set to 100 start consumption reporting
+        if (updatedClientConsumptionReportingConfiguration.samplePercentage >= 100) {
+            startReportingTimer(clientId)
+        }
+
+        // if sample percentage was previously zero and is now higher than zero evaluate again
+        if (updatedClientConsumptionReportingConfiguration.samplePercentage > 0 && previousClientConsumptionReportingConfiguration.samplePercentage <= 0 && shouldReportAccordingToSamplePercentage(
+                updatedClientConsumptionReportingConfiguration.samplePercentage
+            )
+        ) {
+            startReportingTimer(clientId)
+        }
+
+        // updates of the reporting interval are handled automatically when stopping / starting the timer
+    }
     private fun updatePlaybackConsumptionReportingConfiguration(
         clientId: Int,
         updatedClientConsumptionReportingConfiguration: ClientConsumptionReportingConfiguration
@@ -281,6 +283,7 @@ class ConsumptionReportingController(
             )
         }
     }
+
     override fun resetClientSession(clientId: Int) {
         stopReportingTimer(clientId)
         clientsSessionData[clientId]?.consumptionReportingSessionData =

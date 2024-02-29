@@ -124,6 +124,7 @@ class IncomingMessageHandler(
             clientId
         )
         qoeMetricsReportingController.stopReportingTimer(clientId)
+        serviceAccessInformationController.stopUpdateTimer(clientId)
     }
 
     private fun handlePlaybackStateReady(clientId: Int) {

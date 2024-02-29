@@ -38,7 +38,7 @@ class ServiceAccessInformationController(
         val m5BaseUrl: String? = bundle.getString("m5BaseUrl")
         Log.i(SessionController.TAG, "Setting M5 endpoint to $m5BaseUrl")
         if (m5BaseUrl != null) {
-            resetAfterM5Change(clientId )
+            resetAfterM5Change(clientId)
             val retrofit = retrofitBuilder
                 .baseUrl(m5BaseUrl)
                 .build()
@@ -49,14 +49,24 @@ class ServiceAccessInformationController(
 
     private fun resetAfterM5Change(clientId: Int) {
         resetClientSession(clientId)
-        clientsSessionData[clientId]?.serviceAccessInformationSessionData = ServiceAccessInformationSessionData()
+        clientsSessionData[clientId]?.serviceAccessInformationSessionData =
+            ServiceAccessInformationSessionData()
     }
 
     override fun resetClientSession(clientId: Int) {
-        clientsSessionData[clientId]?.serviceAccessInformationSessionData?.requestTimer?.cancel()
-        clientsSessionData[clientId]?.serviceAccessInformationSessionData?.requestTimer = null
-        clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation = null
+        stopUpdateTimer(clientId)
+        clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation =
+            null
         clientsSessionData[clientId]?.serviceAccessInformationSessionData?.responseHeaders = null
+    }
+
+    fun stopUpdateTimer(
+        clientId: Int
+    ) {
+        if (clientsSessionData[clientId]?.serviceAccessInformationSessionData?.requestTimer != null) {
+            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.requestTimer?.cancel()
+            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.requestTimer = null
+        }
     }
 
     suspend fun updateServiceAccessInformation(
@@ -131,7 +141,8 @@ class ServiceAccessInformationController(
                     clientId,
                     previousServiceAccessInformation,
                     clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation
-            ))
+                )
+            )
 
         }
 
