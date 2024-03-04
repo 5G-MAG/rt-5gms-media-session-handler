@@ -383,51 +383,58 @@ class MediaSessionHandlerMessengerService() : Service() {
         }
         
         // get Expires
-        var periodByExpiresHeader = getExpires(headers)
+        val periodByExpiresHeader = getExpires(headers)
 
         // get RefreshTimerValue and start timer
-        var periodInSec: Long = getRefreshTimerValue(periodByMaxAgeHeader, periodByExpiresHeader)
+        val defaultPeriodInSec: Long? = clientsSessionData[sendingUid]?.defaultServiceAccessInformationTimerVal
+        val periodInSec: Long? = defaultPeriodInSec?.let {
+            getRefreshTimerValue(periodByMaxAgeHeader, periodByExpiresHeader,
+                it
+            )
+        }
 
         val timer = Timer()
         clientsSessionData[sendingUid]?.serviceAccessInformationRequestTimer = timer
 
-        timer.schedule(
-            object : TimerTask() {
-                override fun run() {
-                    val call: Call<ServiceAccessInformation>? =
-                        clientsSessionData[sendingUid]?.serviceAccessInformationApi?.fetchServiceAccessInformation(
-                            provisioningSessionId,
-                            clientsSessionData[sendingUid]?.serviceAccessInformationResponseHeaders?.get(
-                                "etag"
-                            ),
-                            clientsSessionData[sendingUid]?.serviceAccessInformationResponseHeaders?.get(
-                                "last-modified"
+        if (periodInSec != null) {
+            timer.schedule(
+                object : TimerTask() {
+                    override fun run() {
+                        val call: Call<ServiceAccessInformation>? =
+                            clientsSessionData[sendingUid]?.serviceAccessInformationApi?.fetchServiceAccessInformation(
+                                provisioningSessionId,
+                                clientsSessionData[sendingUid]?.serviceAccessInformationResponseHeaders?.get(
+                                    "etag"
+                                ),
+                                clientsSessionData[sendingUid]?.serviceAccessInformationResponseHeaders?.get(
+                                    "last-modified"
+                                )
                             )
-                        )
 
-                    call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
-                        override fun onResponse(
-                            call: Call<ServiceAccessInformation?>,
-                            response: Response<ServiceAccessInformation?>
-                        ) {
-                            handleServiceAccessResponse(
-                                response,
-                                sendingUid,
-                                provisioningSessionId
-                            )
-                        }
+                        call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
+                            override fun onResponse(
+                                call: Call<ServiceAccessInformation?>,
+                                response: Response<ServiceAccessInformation?>
+                            ) {
+                                handleServiceAccessResponse(
+                                    response,
+                                    sendingUid,
+                                    provisioningSessionId
+                                )
+                            }
 
-                        override fun onFailure(
-                            call: Call<ServiceAccessInformation?>,
-                            t: Throwable
-                        ) {
-                            call.cancel()
-                        }
-                    })
-                }
-            },
-            periodInSec * 1000
-        )
+                            override fun onFailure(
+                                call: Call<ServiceAccessInformation?>,
+                                t: Throwable
+                            ) {
+                                call.cancel()
+                            }
+                        })
+                    }
+                },
+                periodInSec * 1000
+            )
+        }
     }
 
     /**
@@ -438,9 +445,10 @@ class MediaSessionHandlerMessengerService() : Service() {
      */
     private fun getRefreshTimerValue(
         periodByMaxAgeHeader: Long,
-        periodByExpiresHeader: Long
+        periodByExpiresHeader: Long,
+        defaultPeriodInSec: Long
     ): Long {
-        var periodInSec: Long = 10
+        var periodInSec: Long = defaultPeriodInSec
         if (-1 != periodByMaxAgeHeader.toInt()
             && -1 != periodByExpiresHeader.toInt()
         ) {
@@ -467,6 +475,7 @@ class MediaSessionHandlerMessengerService() : Service() {
             val expHeaderFormattedDate = dateFormat.parse(dateInExpHeader)
             val difference = abs(currentFormattedDate!!.time - expHeaderFormattedDate!!.time)
             periodByExpiresHeader = difference / 1000
+            println("dsl>utc-periodInSec[$periodByExpiresHeader]  from ExpiresHeader; curDate[$currentFormattedDate], dateInExpHeader[$expHeaderFormattedDate]")
         }
 	
         return periodByExpiresHeader
@@ -649,7 +658,10 @@ class MediaSessionHandlerMessengerService() : Service() {
         try {
             val bundle: Bundle = msg.data
             val m5BaseUrl: String? = bundle.getString("m5BaseUrl")
-            Log.i(TAG, "Setting M5 endpoint to $m5BaseUrl")
+            val timerVal: Long = bundle.getLong("timerVal")
+            Log.i(TAG, "Setting M5 endpoint to $m5BaseUrl, timerVal is $timerVal")
+
+            clientsSessionData[msg.sendingUid]?.defaultServiceAccessInformationTimerVal = timerVal
             if (m5BaseUrl != null) {
                 val retrofit = retrofitBuilder
                     .baseUrl(m5BaseUrl)
