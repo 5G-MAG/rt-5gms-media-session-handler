@@ -41,8 +41,9 @@ import java.util.TimerTask
 import java.util.TimeZone
 import java.util.Timer
 import java.util.Date
-import kotlin.math.abs
+import java.util.Properties
 
+import kotlin.math.abs
 
 const val TAG = "5GMS Media Session Handler"
 
@@ -51,6 +52,7 @@ const val TAG = "5GMS Media Session Handler"
  * or to expose some of your application's functionality to other applications through interprocess communication (IPC).
  */
 class MediaSessionHandlerMessengerService() : Service() {
+    private var defaultServiceAccessInformationTimerVal : Long = 0
 
     /**
      * Target we publish for clients to send messages to IncomingHandler.
@@ -386,18 +388,12 @@ class MediaSessionHandlerMessengerService() : Service() {
         val periodByExpiresHeader = getExpires(headers)
 
         // get RefreshTimerValue and start timer
-        val defaultPeriodInSec: Long? = clientsSessionData[sendingUid]?.defaultServiceAccessInformationTimerVal
-        val periodInSec: Long? = defaultPeriodInSec?.let {
-            getRefreshTimerValue(periodByMaxAgeHeader, periodByExpiresHeader,
-                it
-            )
-        }
+        val periodInSec: Long = getRefreshTimerValue(periodByMaxAgeHeader, periodByExpiresHeader,defaultServiceAccessInformationTimerVal)
 
         val timer = Timer()
         clientsSessionData[sendingUid]?.serviceAccessInformationRequestTimer = timer
 
-        if (periodInSec != null) {
-            timer.schedule(
+        timer.schedule(
                 object : TimerTask() {
                     override fun run() {
                         val call: Call<ServiceAccessInformation>? =
@@ -435,7 +431,6 @@ class MediaSessionHandlerMessengerService() : Service() {
                 periodInSec * 1000
             )
         }
-    }
 
     /**
      * For the cacheControlHeader and expiresHeader:
@@ -475,7 +470,6 @@ class MediaSessionHandlerMessengerService() : Service() {
             val expHeaderFormattedDate = dateFormat.parse(dateInExpHeader)
             val difference = abs(currentFormattedDate!!.time - expHeaderFormattedDate!!.time)
             periodByExpiresHeader = difference / 1000
-            println("dsl>utc-periodInSec[$periodByExpiresHeader]  from ExpiresHeader; curDate[$currentFormattedDate], dateInExpHeader[$expHeaderFormattedDate]")
         }
 	
         return periodByExpiresHeader
@@ -658,10 +652,11 @@ class MediaSessionHandlerMessengerService() : Service() {
         try {
             val bundle: Bundle = msg.data
             val m5BaseUrl: String? = bundle.getString("m5BaseUrl")
-            val timerVal: Long = bundle.getLong("timerVal")
-            Log.i(TAG, "Setting M5 endpoint to $m5BaseUrl, timerVal is $timerVal")
 
-            clientsSessionData[msg.sendingUid]?.defaultServiceAccessInformationTimerVal = timerVal
+            val configPropertiesDefualtTimer : Properties = Utils().loadConfiguration(this.assets,"config.propertiesTimer.xml")
+            defaultServiceAccessInformationTimerVal = configPropertiesDefualtTimer.getProperty("defaultServiceAccessInformationTimerVal").toLong()
+            Log.i(TAG, "Setting M5 endpoint to $m5BaseUrl, defaultServiceAccessInformationTimerVal is $defaultServiceAccessInformationTimerVal")
+
             if (m5BaseUrl != null) {
                 val retrofit = retrofitBuilder
                     .baseUrl(m5BaseUrl)
