@@ -55,9 +55,10 @@ class QoeMetricsReportingController(
         for (clientMetricsReportingConfiguration in clientMetricsReportingConfigurations) {
             val qoeMetricsRequest = QoeMetricsRequest(
                 clientMetricsReportingConfiguration.scheme,
+                clientMetricsReportingConfiguration.samplingPeriod,
                 clientMetricsReportingConfiguration.reportingInterval,
                 clientMetricsReportingConfiguration.metrics,
-                clientMetricsReportingConfiguration.metricsReportingConfigurationId
+                clientMetricsReportingConfiguration.metricsReportingConfigurationId,
             )
             qoeMetricsRequests.add(qoeMetricsRequest)
         }
@@ -290,9 +291,12 @@ class QoeMetricsReportingController(
         }
 
         val qoeMetricsRequest =
-            QoeMetricsRequest(clientMetricsReportingConfiguration.scheme)
+            QoeMetricsRequest(
+                clientMetricsReportingConfiguration.scheme,
+                clientMetricsReportingConfiguration.samplingPeriod
+            )
         if (clientMetricsReportingConfiguration.reportingInterval != null) {
-            qoeMetricsRequest.reportPeriod =
+            qoeMetricsRequest.reportingInterval =
                 clientMetricsReportingConfiguration.reportingInterval!!
         }
         qoeMetricsRequest.metrics = clientMetricsReportingConfiguration.metrics
