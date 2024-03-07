@@ -213,4 +213,10 @@ class ServiceAccessInformationController(
             maxAgeValue * 1000
         )
     }
+
+    override fun reset() {
+        for (clientId in clientsSessionData.keys) {
+            resetClientSession(clientId)
+        }
+    }
 }

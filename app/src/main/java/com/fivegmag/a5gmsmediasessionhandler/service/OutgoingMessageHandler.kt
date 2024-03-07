@@ -8,7 +8,7 @@ import android.util.Log
 
 class OutgoingMessageHandler() {
 
-    private lateinit var nativeIncomingMessenger: Messenger
+    private var nativeIncomingMessenger: Messenger? = null
 
     companion object {
         const val TAG = "5GMS-IncomingMessageHandler"
@@ -44,6 +44,10 @@ class OutgoingMessageHandler() {
         } catch (e: RemoteException) {
             e.printStackTrace()
         }
+    }
+
+    fun reset() {
+        nativeIncomingMessenger = null
     }
 
 }

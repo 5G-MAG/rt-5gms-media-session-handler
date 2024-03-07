@@ -9,7 +9,6 @@ import com.fivegmag.a5gmscommonlibrary.models.ClientMetricsReportingConfiguratio
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmscommonlibrary.qoeMetricsReporting.QoeMetricsRequest
 import com.fivegmag.a5gmscommonlibrary.qoeMetricsReporting.QoeMetricsResponse
-import com.fivegmag.a5gmscommonlibrary.qoeMetricsReporting.SchemeSupport
 import com.fivegmag.a5gmsmediasessionhandler.eventbus.ServiceAccessInformationUpdatedEvent
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import com.fivegmag.a5gmsmediasessionhandler.models.QoeMetricsReportingSessionDataEntry
@@ -42,16 +41,29 @@ class QoeMetricsReportingController(
         serviceAccessInformation: ServiceAccessInformation
     ) {
         if (serviceAccessInformation.clientMetricsReportingConfigurations != null && serviceAccessInformation.clientMetricsReportingConfigurations!!.size > 0) {
-            requestMetricCapabilities(clientId)
+            for (clientMetricsReportingConfiguration in serviceAccessInformation.clientMetricsReportingConfigurations!!)
+                clientsSessionData[clientId]?.qoeMetricsReportingSessionData?.set(
+                    clientMetricsReportingConfiguration.metricsReportingConfigurationId,
+                    QoeMetricsReportingSessionDataEntry()
+                )
         }
     }
 
-    private fun requestMetricCapabilities(clientId: Int) {
+    fun getQoeMetricsRequests(serviceAccessInformation: ServiceAccessInformation?): ArrayList<QoeMetricsRequest> {
+        if (serviceAccessInformation?.clientMetricsReportingConfigurations != null) {
+            return getQoeMetricsRequestsByClientMetricsReportingConfigurations(
+                serviceAccessInformation.clientMetricsReportingConfigurations!!
+            )
+        }
 
-        val clientMetricsReportingConfigurations: ArrayList<ClientMetricsReportingConfiguration> =
-            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientMetricsReportingConfigurations
-                ?: return
+        return ArrayList()
+    }
+
+    private fun getQoeMetricsRequestsByClientMetricsReportingConfigurations(
+        clientMetricsReportingConfigurations: ArrayList<ClientMetricsReportingConfiguration>
+    ): ArrayList<QoeMetricsRequest> {
         val qoeMetricsRequests: ArrayList<QoeMetricsRequest> = ArrayList()
+
         for (clientMetricsReportingConfiguration in clientMetricsReportingConfigurations) {
             val qoeMetricsRequest = QoeMetricsRequest(
                 clientMetricsReportingConfiguration.scheme,
@@ -63,47 +75,8 @@ class QoeMetricsReportingController(
             qoeMetricsRequests.add(qoeMetricsRequest)
         }
 
-        if (qoeMetricsRequests.size == 0) {
-            return
-        }
-
-        val bundle = Bundle()
-        bundle.putParcelableArrayList("qoeMetricsRequest", qoeMetricsRequests)
-        val messenger = clientsSessionData[clientId]?.messenger
-        outgoingMessageHandler.sendMessage(
-            SessionHandlerMessageTypes.GET_QOE_METRICS_CAPABILITIES,
-            bundle,
-            messenger
-        )
+        return qoeMetricsRequests
     }
-
-    fun handleQoeMetricsCapabilitiesMessage(msg: Message) {
-        val bundle: Bundle = msg.data
-        bundle.classLoader = SchemeSupport::class.java.classLoader
-        val schemeSupport: ArrayList<SchemeSupport>? =
-            bundle.getParcelableArrayList("schemeSupport")
-        val clientId = msg.sendingUid
-        val clientMetricsReportingConfigurations: ArrayList<ClientMetricsReportingConfiguration> =
-            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientMetricsReportingConfigurations
-                ?: return
-
-        for (clientMetricsReportingConfiguration in clientMetricsReportingConfigurations) {
-            val schemeSupportedInfo =
-                schemeSupport?.filter { it.scheme == clientMetricsReportingConfiguration.scheme }
-            if (schemeSupportedInfo != null) {
-                clientMetricsReportingConfiguration.isSchemeSupported =
-                    schemeSupportedInfo[0].supported
-            }
-            if (clientMetricsReportingConfiguration.isSchemeSupported == true) {
-                clientsSessionData[clientId]?.qoeMetricsReportingSessionData?.set(
-                    clientMetricsReportingConfiguration.metricsReportingConfigurationId,
-                    QoeMetricsReportingSessionDataEntry()
-                )
-            }
-        }
-
-    }
-
 
     fun handleQoeMetricsReportMessage(msg: Message) {
         val bundle: Bundle = msg.data
@@ -275,8 +248,7 @@ class QoeMetricsReportingController(
     }
 
     private fun shouldReport(clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration): Boolean {
-        return clientMetricsReportingConfiguration.isSchemeSupported == true &&
-                clientMetricsReportingConfiguration.reportingInterval != null &&
+        return clientMetricsReportingConfiguration.reportingInterval != null &&
                 clientMetricsReportingConfiguration.reportingInterval!! > 0 &&
                 shouldReportAccordingToSamplePercentage(clientMetricsReportingConfiguration.samplePercentage)
     }
@@ -285,10 +257,6 @@ class QoeMetricsReportingController(
         clientId: Int,
         clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration
     ) {
-
-        if (clientMetricsReportingConfiguration.isSchemeSupported == false) {
-            return
-        }
 
         val qoeMetricsRequest =
             QoeMetricsRequest(
@@ -406,6 +374,12 @@ class QoeMetricsReportingController(
     override fun resetClientSession(clientId: Int) {
         stopReportingTimer(clientId)
         clientsSessionData[clientId]?.qoeMetricsReportingSessionData?.clear()
+    }
+
+    override fun reset() {
+        for (clientId in clientsSessionData.keys) {
+            resetClientSession(clientId)
+        }
     }
 
     override fun stopReportingTimer(clientId: Int) {

@@ -7,8 +7,8 @@ import android.os.Messenger
 import android.util.Log
 import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
-import com.fivegmag.a5gmscommonlibrary.models.PlaybackRequest
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
+import com.fivegmag.a5gmscommonlibrary.session.PlaybackRequest
 import com.fivegmag.a5gmsmediasessionhandler.controller.ConsumptionReportingController
 import com.fivegmag.a5gmsmediasessionhandler.controller.QoeMetricsReportingController
 import com.fivegmag.a5gmsmediasessionhandler.controller.ServiceAccessInformationController
@@ -71,10 +71,6 @@ class IncomingMessageHandler(
                         msg
                     )
 
-                    SessionHandlerMessageTypes.REPORT_QOE_METRICS_CAPABILITIES -> handleQoeMetricsCapabilitiesMessage(
-                        msg
-                    )
-
                     SessionHandlerMessageTypes.REPORT_QOE_METRICS -> handleReportQoeMetricsMessage(
                         msg
                     )
@@ -102,6 +98,13 @@ class IncomingMessageHandler(
         serviceAccessInformationController.resetClientSession(clientId)
         consumptionReportingController.resetClientSession(clientId)
         qoeMetricsReportingController.resetClientSession(clientId)
+    }
+
+    fun reset() {
+        sessionController.reset()
+        serviceAccessInformationController.reset()
+        consumptionReportingController.reset()
+        qoeMetricsReportingController.reset()
     }
 
     private fun handleStatusMessage(msg: Message) {
@@ -161,14 +164,17 @@ class IncomingMessageHandler(
             val finalEntryPoints = sessionController.getFinalEntryPoints(serviceListEntry, clientId)
 
             if (finalEntryPoints != null && finalEntryPoints.size > 0) {
-                val playbackConsumptionReportingConfiguration =
-                    consumptionReportingController.getPlaybackConsumptionReportingConfiguration(
+                val consumptionRequest =
+                    consumptionReportingController.getConsumptionRequest(
                         serviceAccessInformation
                     )
+                val qoeMetricsRequests =
+                    qoeMetricsReportingController.getQoeMetricsRequests(serviceAccessInformation)
                 val playbackRequest =
                     PlaybackRequest(
                         finalEntryPoints,
-                        playbackConsumptionReportingConfiguration
+                        consumptionRequest,
+                        qoeMetricsRequests
                     )
                 val responseBundle = Bundle()
                 responseBundle.putParcelable("playbackRequest", playbackRequest)
@@ -193,10 +199,6 @@ class IncomingMessageHandler(
 
     private fun handleConsumptionReportMessage(msg: Message) {
         consumptionReportingController.handleConsumptionReportMessage(msg)
-    }
-
-    private fun handleQoeMetricsCapabilitiesMessage(msg: Message) {
-        qoeMetricsReportingController.handleQoeMetricsCapabilitiesMessage(msg)
     }
 
     private fun handleReportQoeMetricsMessage(msg: Message) {

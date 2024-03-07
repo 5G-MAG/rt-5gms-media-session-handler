@@ -41,4 +41,10 @@ class SessionController(
         return finalEntryPoints
     }
 
+    override fun reset() {
+        for (clientId in clientsSessionData.keys) {
+            resetClientSession(clientId)
+        }
+    }
+
 }

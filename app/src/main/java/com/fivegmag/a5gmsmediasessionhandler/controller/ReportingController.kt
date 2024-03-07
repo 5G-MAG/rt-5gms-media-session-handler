@@ -52,7 +52,7 @@ abstract class ReportingController(
 
     fun handleResponseCode(response: Response<Void?>, tag: String) {
         when (val responseCode = response.code()) {
-            204 -> Log.d(tag, "Accepted")
+            204 -> Log.d(tag, "Accepted Request")
             400 -> Log.d(tag, "Bad Request")
             415 -> Log.d(tag, "Unsupported Media Type")
             else -> Log.d(tag, "Return code $responseCode")

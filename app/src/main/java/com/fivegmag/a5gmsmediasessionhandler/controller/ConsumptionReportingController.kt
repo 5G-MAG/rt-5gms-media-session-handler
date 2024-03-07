@@ -3,10 +3,10 @@ package com.fivegmag.a5gmsmediasessionhandler.controller
 import android.os.Bundle
 import android.os.Message
 import android.util.Log
+import com.fivegmag.a5gmscommonlibrary.consumptionReporting.ConsumptionRequest
 import com.fivegmag.a5gmscommonlibrary.helpers.ContentTypes
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.models.ClientConsumptionReportingConfiguration
-import com.fivegmag.a5gmscommonlibrary.models.PlaybackConsumptionReportingConfiguration
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmsmediasessionhandler.eventbus.ServiceAccessInformationUpdatedEvent
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
@@ -80,17 +80,17 @@ class ConsumptionReportingController(
         }
     }
 
-    fun getPlaybackConsumptionReportingConfiguration(serviceAccessInformation: ServiceAccessInformation?): PlaybackConsumptionReportingConfiguration {
-        val playbackConsumptionReportingConfiguration = PlaybackConsumptionReportingConfiguration()
+    fun getConsumptionRequest(serviceAccessInformation: ServiceAccessInformation?): ConsumptionRequest {
+        val consumptionRequest = ConsumptionRequest()
 
         if (serviceAccessInformation?.clientConsumptionReportingConfiguration != null) {
-            playbackConsumptionReportingConfiguration.accessReporting =
+            consumptionRequest.accessReporting =
                 serviceAccessInformation.clientConsumptionReportingConfiguration!!.accessReporting
-            playbackConsumptionReportingConfiguration.locationReporting =
+            consumptionRequest.locationReporting =
                 serviceAccessInformation.clientConsumptionReportingConfiguration!!.locationReporting
         }
 
-        return playbackConsumptionReportingConfiguration
+        return consumptionRequest
     }
 
     private fun setReportingEndpoint(clientId: Int) {
@@ -183,11 +183,11 @@ class ConsumptionReportingController(
             clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientConsumptionReportingConfiguration?.locationReporting == true
         val accessReporting =
             clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientConsumptionReportingConfiguration?.accessReporting == true
-        val consumptionReportingConfiguration =
-            PlaybackConsumptionReportingConfiguration(accessReporting, locationReporting)
+        val consumptionRequest =
+            ConsumptionRequest(accessReporting, locationReporting)
         bundle.putParcelable(
-            "playbackConsumptionReportingConfiguration",
-            consumptionReportingConfiguration
+            "consumptionRequest",
+            consumptionRequest
         )
         val messenger = clientsSessionData[clientId]?.messenger
         if (messenger != null) {
@@ -259,6 +259,7 @@ class ConsumptionReportingController(
 
         // updates of the reporting interval are handled automatically when stopping / starting the timer
     }
+
     private fun updatePlaybackConsumptionReportingConfiguration(
         clientId: Int,
         updatedClientConsumptionReportingConfiguration: ClientConsumptionReportingConfiguration
@@ -268,11 +269,11 @@ class ConsumptionReportingController(
             updatedClientConsumptionReportingConfiguration.locationReporting
         val accessReporting =
             updatedClientConsumptionReportingConfiguration.accessReporting
-        val consumptionReportingConfiguration =
-            PlaybackConsumptionReportingConfiguration(accessReporting, locationReporting)
+        val consumptionRequest =
+            ConsumptionRequest(accessReporting, locationReporting)
         bundle.putParcelable(
-            "playbackConsumptionReportingConfiguration",
-            consumptionReportingConfiguration
+            "consumptionRequest",
+            consumptionRequest
         )
         val messenger = clientsSessionData[clientId]?.messenger
         if (messenger != null) {
@@ -288,6 +289,12 @@ class ConsumptionReportingController(
         stopReportingTimer(clientId)
         clientsSessionData[clientId]?.consumptionReportingSessionData =
             ConsumptionReportingSessionData()
+    }
+
+    override fun reset() {
+        for (clientId in clientsSessionData.keys) {
+            resetClientSession(clientId)
+        }
     }
 
     override fun stopReportingTimer(
