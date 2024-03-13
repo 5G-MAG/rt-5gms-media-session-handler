@@ -93,14 +93,20 @@ class QoeMetricsReportingController(
         val clientSessionData = clientsSessionData[clientId] ?: return
         val metricsReportingConfigurationId =
             playbackMetricsResponse?.metricsReportingConfigurationId
+        val clientMetricsReportingConfiguration =
+            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientMetricsReportingConfigurations?.find { it.metricsReportingConfigurationId == metricsReportingConfigurationId }
+                ?: return
+
+        if (clientMetricsReportingConfiguration.samplePercentage!! <= 0) {
+            return
+        }
+
         val qoeMetricsReportingSessionDataEntry =
             clientSessionData.qoeMetricsReportingSessionData[metricsReportingConfigurationId]
                 ?: return
 
         stopSingleReportingTimer(qoeMetricsReportingSessionDataEntry)
-        val clientMetricsReportingConfiguration =
-            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientMetricsReportingConfigurations?.find { it.metricsReportingConfigurationId == metricsReportingConfigurationId }
-                ?: return
+
         startSingleReportingTimer(clientId, null, clientMetricsReportingConfiguration)
 
         val api = qoeMetricsReportingSessionDataEntry.api ?: return
