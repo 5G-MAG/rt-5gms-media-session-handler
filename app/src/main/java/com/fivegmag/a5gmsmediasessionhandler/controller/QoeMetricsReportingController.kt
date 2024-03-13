@@ -268,7 +268,7 @@ class QoeMetricsReportingController(
                 clientMetricsReportingConfiguration.reportingInterval!!
         }
         qoeMetricsRequest.metrics = clientMetricsReportingConfiguration.metrics
-        qoeMetricsRequest.metricReportingConfigurationId =
+        qoeMetricsRequest.metricsReportingConfigurationId =
             clientMetricsReportingConfiguration.metricsReportingConfigurationId
         val bundle = Bundle()
         bundle.putParcelable("qoeMetricsRequest", qoeMetricsRequest)
@@ -351,6 +351,18 @@ class QoeMetricsReportingController(
                 clientsSessionData[clientId]?.qoeMetricsReportingSessionData?.get(
                     updatedConfiguration.metricsReportingConfigurationId
                 )
+
+            // if the list of endpoints is empty we stop reporting. No need to check anything else
+            if (updatedConfiguration.serverAddresses.isEmpty()) {
+                stopReportingTimer(clientId)
+                if (qoeMetricsReportingSessionDataEntry != null) {
+                    qoeMetricsReportingSessionDataEntry.reportingSelectedServerAddress =
+                        null
+                    qoeMetricsReportingSessionDataEntry.api =
+                        null
+                }
+                return
+            }
 
             // if sample percentage is set to 0 or no server addresses are available stop reporting
             if (updatedConfiguration.samplePercentage!! <= 0 && qoeMetricsReportingSessionDataEntry != null) {

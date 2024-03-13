@@ -2,7 +2,6 @@ package com.fivegmag.a5gmsmediasessionhandler.service
 
 import android.app.Service
 import android.content.Intent
-import android.os.Binder
 import android.os.IBinder
 import android.os.Messenger
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
@@ -43,7 +42,7 @@ class MediaSessionHandlerMessengerService : Service() {
         return super.onUnbind(intent)
     }
 
-    fun reset() {
+    private fun reset() {
         incomingMessageHandler.reset()
         outgoingMessageHandler.reset()
         clientsSessionData.clear()
