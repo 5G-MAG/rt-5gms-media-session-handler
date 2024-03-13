@@ -3,9 +3,9 @@ package com.fivegmag.a5gmsmediasessionhandler.models
 import android.os.Messenger
 import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
-import com.fivegmag.a5gmsmediasessionhandler.network.ServiceAccessInformationApi
-import com.fivegmag.a5gmsmediasessionhandler.network.ConsumptionReportingApi
-import com.fivegmag.a5gmsmediasessionhandler.network.MetricsReportingApi
+import com.fivegmag.a5gmsmediasessionhandler.network.IServiceAccessInformationApi
+import com.fivegmag.a5gmsmediasessionhandler.network.IConsumptionReportingApi
+import com.fivegmag.a5gmsmediasessionhandler.network.IMetricsReportingApi
 import okhttp3.Headers
 import java.util.HashMap
 import java.util.Timer
@@ -20,20 +20,20 @@ data class ClientSessionData(
 )
 
 data class QoeMetricsReportingSessionDataEntry(
-    var api: MetricsReportingApi? = null,
+    var api: IMetricsReportingApi? = null,
     var reportingTimer: Timer? = null,
     var reportingSelectedServerAddress: String? = null,
 )
 
 data class ConsumptionReportingSessionData(
-    var api: ConsumptionReportingApi? = null,
+    var api: IConsumptionReportingApi? = null,
     var reportingTimer: Timer? = null,
     var reportingSelectedServerAddress: String? = null,
 )
 
 data class ServiceAccessInformationSessionData(
     var serviceAccessInformation: ServiceAccessInformation? = null,
-    var api: ServiceAccessInformationApi? = null,
+    var api: IServiceAccessInformationApi? = null,
     var responseHeaders: Headers? = null,
     var requestTimer: Timer? = null,
 )

@@ -17,7 +17,7 @@ import retrofit2.http.Headers
 import retrofit2.http.Path
 import retrofit2.http.POST
 
-interface ConsumptionReportingApi {
+interface IConsumptionReportingApi {
     @Headers("Content-Type: ${ContentTypes.JSON}")
     @POST("consumption-reporting/{provisioningSessionId}")
     fun sendConsumptionReport(

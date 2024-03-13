@@ -1,6 +1,6 @@
 package com.fivegmag.a5gmsmediasessionhandler.controller
 
-interface Controller {
+interface IController {
 
     fun resetClientSession(clientId: Int)
 

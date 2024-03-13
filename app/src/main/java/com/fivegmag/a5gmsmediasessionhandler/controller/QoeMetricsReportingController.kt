@@ -12,7 +12,7 @@ import com.fivegmag.a5gmscommonlibrary.qoeMetricsReporting.QoeMetricsResponse
 import com.fivegmag.a5gmsmediasessionhandler.eventbus.ServiceAccessInformationUpdatedEvent
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import com.fivegmag.a5gmsmediasessionhandler.models.QoeMetricsReportingSessionDataEntry
-import com.fivegmag.a5gmsmediasessionhandler.network.MetricsReportingApi
+import com.fivegmag.a5gmsmediasessionhandler.network.IMetricsReportingApi
 import com.fivegmag.a5gmsmediasessionhandler.service.OutgoingMessageHandler
 import okhttp3.MediaType
 import okhttp3.RequestBody
@@ -247,7 +247,7 @@ class QoeMetricsReportingController(
         val retrofit = serverAddress?.let { retrofitBuilder.baseUrl(it).build() }
         if (retrofit != null) {
             qoeMetricsReportingSessionDataEntry.api =
-                retrofit.create(MetricsReportingApi::class.java)
+                retrofit.create(IMetricsReportingApi::class.java)
             qoeMetricsReportingSessionDataEntry.reportingSelectedServerAddress =
                 serverAddress
         }

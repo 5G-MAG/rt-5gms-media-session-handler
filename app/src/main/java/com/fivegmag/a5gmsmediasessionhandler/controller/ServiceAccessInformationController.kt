@@ -9,7 +9,7 @@ import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmsmediasessionhandler.eventbus.ServiceAccessInformationUpdatedEvent
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import com.fivegmag.a5gmsmediasessionhandler.models.ServiceAccessInformationSessionData
-import com.fivegmag.a5gmsmediasessionhandler.network.ServiceAccessInformationApi
+import com.fivegmag.a5gmsmediasessionhandler.network.IServiceAccessInformationApi
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Headers
 import org.greenrobot.eventbus.EventBus
@@ -24,7 +24,7 @@ import kotlin.coroutines.resumeWithException
 class ServiceAccessInformationController(
     private val clientsSessionData: HashMap<Int, ClientSessionData>,
     private val retrofitBuilder: Retrofit.Builder,
-) : Controller {
+) : IController {
 
     companion object {
         const val TAG = "5GMS-ServiceAccessInformationController"
@@ -43,7 +43,7 @@ class ServiceAccessInformationController(
                 .baseUrl(m5BaseUrl)
                 .build()
             clientsSessionData[msg.sendingUid]?.serviceAccessInformationSessionData?.api =
-                retrofit.create(ServiceAccessInformationApi::class.java)
+                retrofit.create(IServiceAccessInformationApi::class.java)
         }
     }
 

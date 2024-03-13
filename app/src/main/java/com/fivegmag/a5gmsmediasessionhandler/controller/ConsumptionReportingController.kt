@@ -11,7 +11,7 @@ import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmsmediasessionhandler.eventbus.ServiceAccessInformationUpdatedEvent
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import com.fivegmag.a5gmsmediasessionhandler.models.ConsumptionReportingSessionData
-import com.fivegmag.a5gmsmediasessionhandler.network.ConsumptionReportingApi
+import com.fivegmag.a5gmsmediasessionhandler.network.IConsumptionReportingApi
 import com.fivegmag.a5gmsmediasessionhandler.service.OutgoingMessageHandler
 import okhttp3.MediaType
 import okhttp3.RequestBody
@@ -108,7 +108,7 @@ class ConsumptionReportingController(
         val retrofit = serverAddress?.let { retrofitBuilder.baseUrl(it).build() }
         if (retrofit != null) {
             clientsSessionData[clientId]?.consumptionReportingSessionData?.api =
-                retrofit.create(ConsumptionReportingApi::class.java)
+                retrofit.create(IConsumptionReportingApi::class.java)
             clientsSessionData[clientId]?.consumptionReportingSessionData?.reportingSelectedServerAddress =
                 serverAddress
         }

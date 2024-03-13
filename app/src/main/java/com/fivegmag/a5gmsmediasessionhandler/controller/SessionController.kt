@@ -7,7 +7,7 @@ import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 
 class SessionController(
     private val clientsSessionData: HashMap<Int, ClientSessionData>,
-) : Controller {
+) : IController {
 
     companion object {
         const val TAG = "5GMS-SessionController"

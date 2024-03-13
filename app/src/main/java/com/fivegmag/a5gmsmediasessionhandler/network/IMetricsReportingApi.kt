@@ -8,8 +8,7 @@ import retrofit2.http.Headers
 import retrofit2.http.POST
 import retrofit2.http.Path
 
-interface MetricsReportingApi {
-
+interface IMetricsReportingApi {
     @Headers("Content-Type: ${ContentTypes.XML}")
     @POST("metrics-reporting/{provisioningSessionId}/{metricsReportingConfigurationId}")
     fun sendMetricsReport(

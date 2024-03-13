@@ -9,7 +9,7 @@ import retrofit2.Response
 
 abstract class ReportingController(
     val clientsSessionData: HashMap<Int, ClientSessionData>
-) : Controller {
+) : IController {
 
     val utils = Utils()
 
