@@ -7,6 +7,7 @@ import android.os.Messenger
 import android.util.Log
 import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
+import com.fivegmag.a5gmscommonlibrary.helpers.Utils
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmscommonlibrary.session.PlaybackRequest
 import com.fivegmag.a5gmsmediasessionhandler.controller.ConsumptionReportingController
@@ -35,6 +36,7 @@ class IncomingMessageHandler(
 
 
     private val headerInterceptor = HeaderInterceptor()
+    private val utils = Utils()
     private val okHttpClient = OkHttpClient()
         .newBuilder()
         .addInterceptor(headerInterceptor)
@@ -171,11 +173,13 @@ class IncomingMessageHandler(
                     )
                 val qoeMetricsRequests =
                     qoeMetricsReportingController.getQoeMetricsRequests(serviceAccessInformation)
+                val mediaStreamingSessionIdentifier = utils.generateUuidToHexBinary()
                 val playbackRequest =
                     PlaybackRequest(
                         finalEntryPoints,
                         consumptionRequest,
-                        qoeMetricsRequests
+                        qoeMetricsRequests,
+                        mediaStreamingSessionIdentifier
                     )
                 val responseBundle = Bundle()
                 responseBundle.putParcelable("playbackRequest", playbackRequest)
