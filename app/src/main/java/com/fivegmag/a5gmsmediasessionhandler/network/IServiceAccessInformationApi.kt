@@ -15,7 +15,7 @@ import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.Path
 
-interface ServiceAccessInformationApi {
+interface IServiceAccessInformationApi {
     @GET("service-access-information/{provisioningSessionId}")
     fun fetchServiceAccessInformation(
         @Path("provisioningSessionId") provisioningSessionId: String?,

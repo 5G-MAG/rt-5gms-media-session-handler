@@ -37,7 +37,7 @@
         </activity>
 
         <service
-            android:name=".MediaSessionHandlerMessengerService"
+            android:name=".service.MediaSessionHandlerMessengerService"
             android:exported="true">
             <intent-filter>
                 <action android:name="com.fivegmag.a5gmsmediasessionhandler.Service" />
