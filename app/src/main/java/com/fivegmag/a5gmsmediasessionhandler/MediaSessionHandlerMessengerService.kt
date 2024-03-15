@@ -10,7 +10,6 @@ https://drive.google.com/file/d/1cinCiA778IErENZ3JN52VFW-1ffHpx7Z/view
 package com.fivegmag.a5gmsmediasessionhandler
 
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.os.*
 import android.util.Log
@@ -19,16 +18,15 @@ import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.helpers.Utils
 import com.fivegmag.a5gmscommonlibrary.models.ClientConsumptionReportingConfiguration
-import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
-import com.fivegmag.a5gmscommonlibrary.models.PlaybackConsumptionReportingConfiguration
 import com.fivegmag.a5gmscommonlibrary.models.PlaybackRequest
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
+import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
+import com.fivegmag.a5gmscommonlibrary.models.PlaybackConsumptionReportingConfiguration
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionModel
+import com.fivegmag.a5gmsmediasessionhandler.network.ConsumptionReportingApi
 import com.fivegmag.a5gmsmediasessionhandler.network.HeaderInterceptor
 import com.fivegmag.a5gmsmediasessionhandler.network.ServiceAccessInformationApi
-import com.fivegmag.a5gmsmediasessionhandler.network.ConsumptionReportingApi
-
 import okhttp3.Headers
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
@@ -37,10 +35,15 @@ import retrofit2.Call
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-
-import java.util.Timer
+import java.lang.Long.min
+import java.text.SimpleDateFormat
 import java.util.TimerTask
+import java.util.TimeZone
+import java.util.Timer
+import java.util.Date
+import java.util.Properties
 
+import kotlin.math.abs
 
 const val TAG = "5GMS Media Session Handler"
 
@@ -49,6 +52,7 @@ const val TAG = "5GMS Media Session Handler"
  * or to expose some of your application's functionality to other applications through interprocess communication (IPC).
  */
 class MediaSessionHandlerMessengerService() : Service() {
+    private var defaultServiceAccessInformationTimerVal : Long = 0
 
     /**
      * Target we publish for clients to send messages to IncomingHandler.
@@ -68,10 +72,7 @@ class MediaSessionHandlerMessengerService() : Service() {
     /**
      * Handler of incoming messages from clients.
      */
-    inner class IncomingHandler(
-        context: Context,
-        private val applicationContext: Context = context.applicationContext
-    ) : Handler() {
+    inner class IncomingHandler : Handler() {
 
         override fun handleMessage(msg: Message) {
             when (msg.what) {
@@ -132,7 +133,7 @@ class MediaSessionHandlerMessengerService() : Service() {
     private fun initializeConsumptionReportingTimer(clientId: Int, delay: Long? = null) {
         setConsumptionReportingEndpoint(clientId)
 
-        // Do not start the consumption reporting timer if we dont have an endpoint
+        // Do not start the consumption reporting timer if we don't have an endpoint
         if (clientsSessionData[clientId]?.consumptionReportingApi == null) {
             return
         }
@@ -153,7 +154,7 @@ class MediaSessionHandlerMessengerService() : Service() {
         bundle.classLoader = ServiceListEntry::class.java.classLoader
         val serviceListEntry: ServiceListEntry? = bundle.getParcelable("serviceListEntry")
         val responseMessenger: Messenger = msg.replyTo
-        val sendingUid = msg.sendingUid;
+        val sendingUid = msg.sendingUid
 
         resetClientSessionData(sendingUid)
 
@@ -169,7 +170,6 @@ class MediaSessionHandlerMessengerService() : Service() {
                 call: Call<ServiceAccessInformation?>,
                 response: Response<ServiceAccessInformation?>
             ) {
-
                 val resource =
                     handleServiceAccessResponse(response, sendingUid, provisioningSessionId)
 
@@ -309,17 +309,17 @@ class MediaSessionHandlerMessengerService() : Service() {
             }
 
             // if sample percentage is set to 0 or no server addresses are available stop consumption reporting
-            if (updatedClientConsumptionReportingConfiguration.samplePercentage!! <= 0) {
+            if (updatedClientConsumptionReportingConfiguration.samplePercentage <= 0) {
                 stopConsumptionReportingTimer(clientId)
             }
 
             // if sample percentage is set to 100 start consumption reporting
-            if (updatedClientConsumptionReportingConfiguration.samplePercentage!! >= 100) {
+            if (updatedClientConsumptionReportingConfiguration.samplePercentage >= 100) {
                 startConsumptionReportingTimer(clientId)
             }
 
             // if sample percentage was previously zero and is now higher than zero evaluate again
-            if (updatedClientConsumptionReportingConfiguration.samplePercentage!! > 0 && previousClientConsumptionReportingConfiguration.samplePercentage <= 0 && shouldReportAccordingToSamplePercentage(
+            if (updatedClientConsumptionReportingConfiguration.samplePercentage > 0 && previousClientConsumptionReportingConfiguration.samplePercentage <= 0 && shouldReportAccordingToSamplePercentage(
                     updatedClientConsumptionReportingConfiguration.samplePercentage
                 )
             ) {
@@ -376,56 +376,118 @@ class MediaSessionHandlerMessengerService() : Service() {
         sendingUid: Int,
         provisioningSessionId: String
     ) {
-        val cacheControlHeader = headers.get("cache-control") ?: return
-        val cacheControlHeaderItems = cacheControlHeader.split(',')
-        val maxAgeHeader = cacheControlHeaderItems.filter { it.trim().startsWith("max-age=") }
+        // Get MaxAge. If an age header is present, that value shall be subtracted from the value defined in max-age.
+        var periodByMaxAgeHeader = getMaxAge(headers)
 
-        if (maxAgeHeader.isEmpty()) {
-            return
+        val ageHeader = headers.get("Age")
+        if(null != ageHeader && -1 != periodByMaxAgeHeader.toInt()) {
+            periodByMaxAgeHeader -= ageHeader.toLong()
         }
+        
+        // get Expires
+        val periodByExpiresHeader = getExpires(headers)
 
-        val maxAgeValue = maxAgeHeader[0].trim().substring(8).toLong()
+        // get RefreshTimerValue and start timer
+        val periodInSec: Long = getRefreshTimerValue(periodByMaxAgeHeader, periodByExpiresHeader,defaultServiceAccessInformationTimerVal)
+
         val timer = Timer()
         clientsSessionData[sendingUid]?.serviceAccessInformationRequestTimer = timer
 
         timer.schedule(
-            object : TimerTask() {
-                override fun run() {
-                    val call: Call<ServiceAccessInformation>? =
-                        clientsSessionData[sendingUid]?.serviceAccessInformationApi?.fetchServiceAccessInformation(
-                            provisioningSessionId,
-                            clientsSessionData[sendingUid]?.serviceAccessInformationResponseHeaders?.get(
-                                "etag"
-                            ),
-                            clientsSessionData[sendingUid]?.serviceAccessInformationResponseHeaders?.get(
-                                "last-modified"
+                object : TimerTask() {
+                    override fun run() {
+                        val call: Call<ServiceAccessInformation>? =
+                            clientsSessionData[sendingUid]?.serviceAccessInformationApi?.fetchServiceAccessInformation(
+                                provisioningSessionId,
+                                clientsSessionData[sendingUid]?.serviceAccessInformationResponseHeaders?.get(
+                                    "etag"
+                                ),
+                                clientsSessionData[sendingUid]?.serviceAccessInformationResponseHeaders?.get(
+                                    "last-modified"
+                                )
                             )
-                        )
 
-                    call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
-                        override fun onResponse(
-                            call: Call<ServiceAccessInformation?>,
-                            response: Response<ServiceAccessInformation?>
-                        ) {
+                        call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
+                            override fun onResponse(
+                                call: Call<ServiceAccessInformation?>,
+                                response: Response<ServiceAccessInformation?>
+                            ) {
+                                handleServiceAccessResponse(
+                                    response,
+                                    sendingUid,
+                                    provisioningSessionId
+                                )
+                            }
 
-                            handleServiceAccessResponse(
-                                response,
-                                sendingUid,
-                                provisioningSessionId
-                            )
-                        }
+                            override fun onFailure(
+                                call: Call<ServiceAccessInformation?>,
+                                t: Throwable
+                            ) {
+                                call.cancel()
+                            }
+                        })
+                    }
+                },
+                periodInSec * 1000
+            )
+        }
 
-                        override fun onFailure(
-                            call: Call<ServiceAccessInformation?>,
-                            t: Throwable
-                        ) {
-                            call.cancel()
-                        }
-                    })
-                }
-            },
-            maxAgeValue * 1000
-        )
+    /**
+     * For the cacheControlHeader and expiresHeader:
+     * 1.In case both max-age and expires are present the values shall be translated to absolute times, compared and the earlier value shall be used.
+     * 2.In case only one of the headers is present, use it.
+     * 3.In case none of the headers are defined, we use a static configurable refresh value like 10 minutes.
+     */
+    private fun getRefreshTimerValue(
+        periodByMaxAgeHeader: Long,
+        periodByExpiresHeader: Long,
+        defaultPeriodInSec: Long
+    ): Long {
+        var periodInSec: Long = defaultPeriodInSec
+        if (-1 != periodByMaxAgeHeader.toInt()
+            && -1 != periodByExpiresHeader.toInt()
+        ) {
+            periodInSec = min(periodByMaxAgeHeader, periodByExpiresHeader)
+        } else if (-1 != periodByMaxAgeHeader.toInt()) {
+            periodInSec = periodByMaxAgeHeader
+        } else if (-1 != periodByExpiresHeader.toInt()) {
+            periodInSec = periodByExpiresHeader
+        }
+	
+        return periodInSec
+    }
+
+    private fun getExpires(headers: Headers): Long {
+        var periodByExpiresHeader : Long = -1
+        val dateInExpHeader = headers.get("Expires")
+        if (null != dateInExpHeader) {
+            val dateFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z")
+            dateFormat.timeZone = TimeZone.getTimeZone("UTC")
+
+            val currentDate = dateFormat.format(Date(System.currentTimeMillis()))
+
+            val currentFormattedDate = dateFormat.parse(currentDate)
+            val expHeaderFormattedDate = dateFormat.parse(dateInExpHeader)
+            val difference = abs(currentFormattedDate!!.time - expHeaderFormattedDate!!.time)
+            periodByExpiresHeader = difference / 1000
+        }
+	
+        return periodByExpiresHeader
+    }
+
+    private fun getMaxAge(headers: Headers): Long {
+        var periodByMaxAgeHeader : Long = -1
+        val cacheControlHeader = headers.get("cache-control")
+        if (null != cacheControlHeader) {
+            val cacheControlHeaderItems = cacheControlHeader.split(',')
+            val maxAgeHeader = cacheControlHeaderItems.filter { it.trim().startsWith("max-age=") }
+
+            if (maxAgeHeader.isNotEmpty()) {
+                periodByMaxAgeHeader = maxAgeHeader[0].trim().substring(8).toLong()
+            }
+        }
+	
+        return periodByMaxAgeHeader
     }
 
     private fun setConsumptionReportingEndpoint(clientId: Int) {
@@ -454,7 +516,6 @@ class MediaSessionHandlerMessengerService() : Service() {
     }
 
     private fun startConsumptionReportingTimer(clientId: Int, delay: Long? = null) {
-
         // Endpoint not set
         if (clientsSessionData[clientId]?.consumptionReportingApi == null) {
             setConsumptionReportingEndpoint(clientId)
@@ -591,7 +652,11 @@ class MediaSessionHandlerMessengerService() : Service() {
         try {
             val bundle: Bundle = msg.data
             val m5BaseUrl: String? = bundle.getString("m5BaseUrl")
-            Log.i(TAG, "Setting M5 endpoint to $m5BaseUrl")
+
+            val configPropertiesDefualtTimer : Properties = Utils().loadConfiguration(this.assets,"config.propertiesTimer.xml")
+            defaultServiceAccessInformationTimerVal = configPropertiesDefualtTimer.getProperty("defaultServiceAccessInformationTimerVal").toLong()
+            Log.i(TAG, "Setting M5 endpoint to $m5BaseUrl, defaultServiceAccessInformationTimerVal is $defaultServiceAccessInformationTimerVal")
+
             if (m5BaseUrl != null) {
                 val retrofit = retrofitBuilder
                     .baseUrl(m5BaseUrl)
@@ -616,7 +681,7 @@ class MediaSessionHandlerMessengerService() : Service() {
      */
     override fun onBind(intent: Intent): IBinder? {
         Log.i("MediaSessionHandler-New", "Service bound new")
-        mMessenger = Messenger(IncomingHandler(this))
+        mMessenger = Messenger(IncomingHandler())
         return mMessenger.binder
     }
 }
