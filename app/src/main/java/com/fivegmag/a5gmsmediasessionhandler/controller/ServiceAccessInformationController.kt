@@ -16,10 +16,17 @@ import org.greenrobot.eventbus.EventBus
 import retrofit2.Call
 import retrofit2.Response
 import retrofit2.Retrofit
+import java.lang.Exception
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.Properties
+import java.util.TimeZone
 import java.util.Timer
 import java.util.TimerTask
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.math.abs
 
 class ServiceAccessInformationController(
     private val clientsSessionData: HashMap<Int, ClientSessionData>,
@@ -31,6 +38,14 @@ class ServiceAccessInformationController(
     }
 
     private val utils = Utils()
+    private var defaultServiceAccessInformationTimerInterval: Long = 0
+
+    fun initialize(configurationProperties: Properties) {
+        defaultServiceAccessInformationTimerInterval =
+            configurationProperties.getProperty("defaultServiceAccessInformationTimerInterval")
+                .toLong()
+
+    }
 
     fun setM5Endpoint(msg: Message) {
         val bundle: Bundle = msg.data
@@ -162,15 +177,21 @@ class ServiceAccessInformationController(
         sendingUid: Int,
         provisioningSessionId: String
     ) {
-        val cacheControlHeader = headers.get("cache-control") ?: return
-        val cacheControlHeaderItems = cacheControlHeader.split(',')
-        val maxAgeHeader = cacheControlHeaderItems.filter { it.trim().startsWith("max-age=") }
+        // Get MaxAge. If an age header is present, that value shall be subtracted from the value defined in max-age.
+        var periodByMaxAgeHeader = getMaxAge(headers)
 
-        if (maxAgeHeader.isEmpty()) {
-            return
+        val ageHeader = headers.get("Age")
+        if (null != ageHeader && -1 != periodByMaxAgeHeader.toInt()) {
+            periodByMaxAgeHeader -= ageHeader.toLong()
         }
 
-        val maxAgeValue = maxAgeHeader[0].trim().substring(8).toLong()
+        val periodByExpiresHeader = getPeriodFromExpiresHeader(headers)
+        val periodTimerInSeconds: Long = getRefreshTimerValue(
+            periodByMaxAgeHeader,
+            periodByExpiresHeader,
+            defaultServiceAccessInformationTimerInterval
+        )
+
         val timer = Timer()
         clientsSessionData[sendingUid]?.serviceAccessInformationSessionData?.requestTimer = timer
 
@@ -210,8 +231,63 @@ class ServiceAccessInformationController(
                     })
                 }
             },
-            maxAgeValue * 1000
+            periodTimerInSeconds * 1000
         )
+    }
+
+    private fun getRefreshTimerValue(
+        periodByMaxAgeHeader: Long,
+        periodByExpiresHeader: Long,
+        defaultPeriodInSec: Long
+    ): Long {
+        var periodInSec: Long = defaultPeriodInSec
+        if (periodByMaxAgeHeader.toInt() != -1
+            && periodByExpiresHeader.toInt() != -1
+        ) {
+            periodInSec = listOf<Long>(periodByMaxAgeHeader, periodByExpiresHeader).min()
+        } else if (periodByMaxAgeHeader.toInt() != -1) {
+            periodInSec = periodByMaxAgeHeader
+        } else if (periodByExpiresHeader.toInt() != -1) {
+            periodInSec = periodByExpiresHeader
+        }
+
+        return periodInSec
+    }
+
+    private fun getPeriodFromExpiresHeader(headers: Headers): Long {
+        var periodByExpiresHeader: Long = -1
+        val dateInExpHeader = headers.get("Expires")
+
+        return try {
+            if (dateInExpHeader != null) {
+                val dateFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.ENGLISH)
+                dateFormat.timeZone = TimeZone.getTimeZone("UTC")
+                val expHeaderFormattedDate = dateFormat.parse(dateInExpHeader)
+                val currentDate = dateFormat.format(Date(System.currentTimeMillis()))
+                val currentFormattedDate = dateFormat.parse(currentDate)
+                val difference = abs(currentFormattedDate!!.time - expHeaderFormattedDate!!.time)
+                periodByExpiresHeader = difference / 1000
+            }
+
+            periodByExpiresHeader
+        } catch (e: Exception) {
+            periodByExpiresHeader
+        }
+    }
+
+    private fun getMaxAge(headers: Headers): Long {
+        var periodByMaxAgeHeader: Long = -1
+        val cacheControlHeader = headers.get("cache-control")
+        if (null != cacheControlHeader) {
+            val cacheControlHeaderItems = cacheControlHeader.split(',')
+            val maxAgeHeader = cacheControlHeaderItems.filter { it.trim().startsWith("max-age=") }
+
+            if (maxAgeHeader.isNotEmpty()) {
+                periodByMaxAgeHeader = maxAgeHeader[0].trim().substring(8).toLong()
+            }
+        }
+
+        return periodByMaxAgeHeader
     }
 
     override fun reset() {

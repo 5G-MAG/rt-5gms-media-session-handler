@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.util.Properties
 
 class IncomingMessageHandler(
     private val clientsSessionData: HashMap<Int, ClientSessionData>,
@@ -209,7 +210,7 @@ class IncomingMessageHandler(
         return incomingMessenger
     }
 
-    fun initialize() {
+    fun initialize(configurationProperties: Properties) {
         consumptionReportingController =
             ConsumptionReportingController(
                 clientsSessionData,
@@ -230,5 +231,6 @@ class IncomingMessageHandler(
             )
         serviceAccessInformationController =
             ServiceAccessInformationController(clientsSessionData, retrofitBuilder)
+        serviceAccessInformationController.initialize(configurationProperties)
     }
 }

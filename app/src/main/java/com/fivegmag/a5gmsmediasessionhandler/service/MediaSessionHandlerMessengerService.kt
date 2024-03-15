@@ -4,7 +4,9 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.os.Messenger
+import com.fivegmag.a5gmscommonlibrary.helpers.Utils
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
+import java.util.Properties
 
 /**
  * Create a bound service when you want to interact with the service from activities and other components in your application
@@ -30,7 +32,8 @@ class MediaSessionHandlerMessengerService : Service() {
      * IBinder and is what your service must return from the onBind() callback method.
      */
     override fun onBind(intent: Intent): IBinder? {
-        incomingMessageHandler.initialize()
+        val configurationProperties = loadConfiguration()
+        incomingMessageHandler.initialize(configurationProperties)
         nativeIncomingMessenger = incomingMessageHandler.getIncomingMessenger()
         outgoingMessageHandler.setNativeIncomingMessenger(nativeIncomingMessenger)
 
@@ -40,6 +43,10 @@ class MediaSessionHandlerMessengerService : Service() {
     override fun onUnbind(intent: Intent?): Boolean {
         reset()
         return super.onUnbind(intent)
+    }
+
+    private fun loadConfiguration() : Properties{
+        return Utils().loadConfiguration(this.assets, "config.properties.xml")
     }
 
     private fun reset() {
