@@ -6,16 +6,20 @@ plugins {
 
 android {
     namespace 'com.fivegmag.a5gmsmediasessionhandler'
-    compileSdk 33
+    compileSdk 34
 
     defaultConfig {
         applicationId "com.fivegmag.a5gmsmediasessionhandler"
         minSdk 29
-        targetSdk 33
+        targetSdk 34
         versionCode 1
-        versionName "1.2.0"
+        versionName "1.2.1"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {
@@ -48,7 +52,7 @@ dependencies {
     implementation 'org.greenrobot:eventbus:3.3.1'
 
     // 5GMAG
-    implementation 'com.fivegmag:a5gmscommonlibrary:1.2.0'
+    implementation 'com.fivegmag:a5gmscommonlibrary:1.2.1'
 
     // Retrofit
     def retrofit_version = "2.9.0"
