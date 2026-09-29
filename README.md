@@ -63,11 +63,11 @@ declared as a Maven dependency in the `build.gradle` of the `app` module:
 
 ````
 dependencies {
-   implementation 'com.fivegmag:a5gmscommonlibrary:1.0.0'
+   implementation 'com.fivegmag:a5gmscommonlibrary:1.3.0'
 }
 ````
 
-The version number (`1.0.0` in the example above) might differ, depending on the version of the
+The version number (`1.3.0` in the example above) might differ, depending on the version of the
 Media Session Handler.
 
 Install the library by following the installation guide in its README, and publish it to the local
