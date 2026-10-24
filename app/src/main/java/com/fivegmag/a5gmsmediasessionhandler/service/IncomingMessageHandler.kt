@@ -156,6 +156,10 @@ class IncomingMessageHandler(
         val responseMessenger = msg.replyTo
 
         resetClientSession(clientId)
+
+        val mediaDeliverySessionId = utils.generateUUID()
+        clientsSessionData[clientId]?.mediaDeliverySessionId = mediaDeliverySessionId
+
         CoroutineScope(Dispatchers.Main).launch {
             val serviceAccessInformation = withContext(Dispatchers.IO) {
                 serviceAccessInformationController.updateServiceAccessInformation(
@@ -173,13 +177,14 @@ class IncomingMessageHandler(
                     )
                 val qoeMetricsRequests =
                     qoeMetricsReportingController.getQoeMetricsRequests(serviceAccessInformation)
-                val mediaStreamingSessionIdentifier = utils.generateUuidToHexBinary()
+                val mediaStreamingSessionIdentifier = mediaDeliverySessionId
                 val playbackRequest =
                     PlaybackRequest(
                         finalEntryPoints,
                         consumptionRequest,
                         qoeMetricsRequests,
-                        mediaStreamingSessionIdentifier
+                        mediaStreamingSessionIdentifier,
+                        mediaDeliverySessionId
                     )
                 val responseBundle = Bundle()
                 responseBundle.putParcelable("playbackRequest", playbackRequest)

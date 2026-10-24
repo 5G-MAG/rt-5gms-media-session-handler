@@ -20,6 +20,7 @@ interface IServiceAccessInformationApi {
     fun fetchServiceAccessInformation(
         @Path("provisioningSessionId") provisioningSessionId: String?,
         @Header("If-None-Match") ifNoneMatch: String?,
-        @Header("If-Modified-Since") ifModifiedSince: String?
+        @Header("If-Modified-Since") ifModifiedSince: String?,
+        @Header("CMCD-Session") mediaDeliverySessionId: String?
     ): Call<ServiceAccessInformation>?
 }
