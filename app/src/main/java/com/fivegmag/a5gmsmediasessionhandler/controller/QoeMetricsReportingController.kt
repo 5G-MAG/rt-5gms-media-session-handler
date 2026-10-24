@@ -119,7 +119,8 @@ class QoeMetricsReportingController(
         val call: Call<Void>? = api.sendMetricsReport(
             provisioningSessionId,
             metricsReportingConfigurationId,
-            requestBody
+            requestBody,
+            "sid=\"${clientSessionData.mediaDeliverySessionId}\""
         )
 
         call?.enqueue(object : retrofit2.Callback<Void?> {
