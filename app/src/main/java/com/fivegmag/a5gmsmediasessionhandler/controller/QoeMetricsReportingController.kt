@@ -111,7 +111,7 @@ class QoeMetricsReportingController(
 
         val api = qoeMetricsReportingSessionDataEntry.api ?: return
         val metricsString = playbackMetricsResponse?.metricsString
-        val mediaType = MediaType.parse(ContentTypes.XML)
+        val mediaType = MediaType.parse(ContentTypes.QOE_REPORT_XML)
         val requestBody: RequestBody? = metricsString?.let { RequestBody.create(mediaType, it) }
         val provisioningSessionId =
             clientSessionData.serviceAccessInformationSessionData.serviceAccessInformation?.provisioningSessionId

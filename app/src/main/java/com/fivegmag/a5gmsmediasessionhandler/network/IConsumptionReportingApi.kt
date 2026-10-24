@@ -19,7 +19,8 @@ import retrofit2.http.POST
 
 interface IConsumptionReportingApi {
     @Headers("Content-Type: ${ContentTypes.JSON}")
-    @POST("consumption-reporting/{provisioningSessionId}")
+    // TS 26.510 V19.2.0 clause 9.6.2: the base URL is one of the serverAddresses of the Service Access Information
+    @POST("provisioning-sessions/{provisioningSessionId}/consumption-reporting/")
     fun sendConsumptionReport(
         @Path("provisioningSessionId") provisioningSessionId: String?,
         @Body requestBody: RequestBody?

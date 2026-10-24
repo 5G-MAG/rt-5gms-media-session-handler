@@ -16,9 +16,10 @@ import retrofit2.http.Header
 import retrofit2.http.Path
 
 interface IServiceAccessInformationApi {
-    @GET("service-access-information/{provisioningSessionId}")
+    // TS 26.510 V19.2.0 clause 9.2.2: the Service Access Information is addressed by the externalServiceId
+    @GET("service-access-information/{externalServiceId}")
     fun fetchServiceAccessInformation(
-        @Path("provisioningSessionId") provisioningSessionId: String?,
+        @Path("externalServiceId") externalServiceId: String?,
         @Header("If-None-Match") ifNoneMatch: String?,
         @Header("If-Modified-Since") ifModifiedSince: String?
     ): Call<ServiceAccessInformation>?

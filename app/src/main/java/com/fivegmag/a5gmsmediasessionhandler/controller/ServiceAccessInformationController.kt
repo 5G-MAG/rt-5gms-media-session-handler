@@ -89,7 +89,7 @@ class ServiceAccessInformationController(
         clientId: Int
     ): ServiceAccessInformation? {
 
-        val provisioningSessionId: String = serviceListEntry!!.provisioningSessionId
+        val provisioningSessionId: String = serviceListEntry!!.externalServiceId
         val call: Call<ServiceAccessInformation>? =
             clientsSessionData[clientId]?.serviceAccessInformationSessionData?.api?.fetchServiceAccessInformation(
                 provisioningSessionId,

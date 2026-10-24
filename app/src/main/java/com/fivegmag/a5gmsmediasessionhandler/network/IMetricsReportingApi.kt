@@ -9,8 +9,9 @@ import retrofit2.http.POST
 import retrofit2.http.Path
 
 interface IMetricsReportingApi {
-    @Headers("Content-Type: ${ContentTypes.XML}")
-    @POST("metrics-reporting/{provisioningSessionId}/{metricsReportingConfigurationId}")
+    @Headers("Content-Type: ${ContentTypes.QOE_REPORT_XML}")
+    // TS 26.510 V19.2.0 clause 9.5.2
+    @POST("provisioning-sessions/{provisioningSessionId}/metrics-reporting/{metricsReportingConfigurationId}")
     fun sendMetricsReport(
         @Path("provisioningSessionId") provisioningSessionId: String?,
         @Path("metricsReportingConfigurationId") metricsReportingConfigurationId: String?,

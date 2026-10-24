@@ -14,6 +14,7 @@ import com.fivegmag.a5gmsmediasessionhandler.models.ConsumptionReportingSessionD
 import com.fivegmag.a5gmsmediasessionhandler.network.IConsumptionReportingApi
 import com.fivegmag.a5gmsmediasessionhandler.service.OutgoingMessageHandler
 import okhttp3.MediaType
+import org.json.JSONObject
 import okhttp3.RequestBody
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
@@ -58,8 +59,12 @@ class ConsumptionReportingController(
         val provisioningSessionId =
             clientSessionData?.serviceAccessInformationSessionData?.serviceAccessInformation?.provisioningSessionId
         val mediaType = MediaType.parse(ContentTypes.JSON)
+        // The ConsumptionReport requires the media delivery session identifier (TS 26.510 V19.2.0 table 9.6.3.1-1); the player side does not know it
+        val reportWithSessionId: String? = consumptionReport?.let {
+            JSONObject(it).put("sessionId", clientSessionData?.mediaDeliverySessionId).toString()
+        }
         val requestBody: RequestBody? =
-            consumptionReport?.let { RequestBody.create(mediaType, it) }
+            reportWithSessionId?.let { RequestBody.create(mediaType, it) }
 
         if (clientSessionData?.consumptionReportingSessionData?.api != null) {
             val call: Call<Void>? =

@@ -4,6 +4,7 @@ import android.os.Message
 import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
+import java.util.UUID
 
 class SessionController(
     private val clientsSessionData: HashMap<Int, ClientSessionData>,
@@ -24,6 +25,7 @@ class SessionController(
 
     override fun resetClientSession(clientId: Int) {
         clientsSessionData[clientId]?.initializedSession = false
+        clientsSessionData[clientId]?.mediaDeliverySessionId = UUID.randomUUID().toString()
     }
 
     fun getFinalEntryPoints(
