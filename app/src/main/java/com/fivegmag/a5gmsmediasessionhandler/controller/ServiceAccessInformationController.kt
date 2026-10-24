@@ -94,7 +94,8 @@ class ServiceAccessInformationController(
             clientsSessionData[clientId]?.serviceAccessInformationSessionData?.api?.fetchServiceAccessInformation(
                 provisioningSessionId,
                 null,
-                null
+                null,
+                clientsSessionData[clientId]?.mediaDeliverySessionId?.let { sessionId -> "sid=\"$sessionId\"" }
             )
         return suspendCancellableCoroutine { continuation ->
             call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
@@ -206,7 +207,8 @@ class ServiceAccessInformationController(
                             ),
                             clientsSessionData[sendingUid]?.serviceAccessInformationSessionData?.responseHeaders?.get(
                                 "last-modified"
-                            )
+                            ),
+                            clientsSessionData[sendingUid]?.mediaDeliverySessionId?.let { sessionId -> "sid=\"$sessionId\"" }
                         )
 
                     call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
