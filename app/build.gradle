@@ -52,6 +52,8 @@ dependencies {
 
     // 5GMAG
     implementation 'com.fivegmag:a5gmscommonlibrary:1.4.0'
+    // the MQTT 5 client of the resource update notification channel (TS 26.510 clause 10.2)
+    implementation 'org.eclipse.paho:org.eclipse.paho.mqttv5.client:1.2.5'
 
     // Retrofit
     def retrofit_version = "2.9.0"

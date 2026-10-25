@@ -5,6 +5,8 @@ import android.os.Message
 import android.os.Messenger
 import android.os.RemoteException
 import android.util.Log
+import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerBundleKeys
+import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 
 class OutgoingMessageHandler() {
 
@@ -26,6 +28,12 @@ class OutgoingMessageHandler() {
         val msg = getMessage(messageType)
         msg.data = bundle
         sendMessage(msg, messenger)
+    }
+
+    /** A notification event of TS 26.510 V19.2.0 tables 11.2.3-2 and 11.2.3-3: the bundle names the event and carries its payload */
+    fun sendNotification(event: String, bundle: Bundle, messenger: Messenger?) {
+        bundle.putString(SessionHandlerBundleKeys.EVENT, event)
+        sendMessage(SessionHandlerMessageTypes.NOTIFICATION_EVENT, bundle, messenger)
     }
 
     private fun getMessage(messageType: Int): Message {

@@ -4,6 +4,8 @@ import android.os.Bundle
 import android.os.Message
 import android.util.Log
 import com.fivegmag.a5gmscommonlibrary.helpers.ContentTypes
+import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerBundleKeys
+import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerEvents
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.models.ClientMetricsReportingConfiguration
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
@@ -28,7 +30,7 @@ import kotlin.collections.ArrayList
 class QoeMetricsReportingController(
     clientsSessionData: HashMap<Int, ClientSessionData>,
     private val retrofitBuilder: Retrofit.Builder,
-    private val outgoingMessageHandler: OutgoingMessageHandler
+    override val outgoingMessageHandler: OutgoingMessageHandler
 ) :
     ReportingController(clientsSessionData) {
 
@@ -105,9 +107,10 @@ class QoeMetricsReportingController(
             clientSessionData.qoeMetricsReportingSessionData[metricsReportingConfigurationId]
                 ?: return
 
-        stopSingleReportingTimer(qoeMetricsReportingSessionDataEntry)
+        // a restart after a report is not an end and a new start of metrics reporting
+        cancelSingleReportingTimer(qoeMetricsReportingSessionDataEntry)
 
-        startSingleReportingTimer(clientId, null, clientMetricsReportingConfiguration)
+        startSingleReportingTimer(clientId, null, clientMetricsReportingConfiguration, false)
 
         val api = qoeMetricsReportingSessionDataEntry.api ?: return
         val metricsString = playbackMetricsResponse?.metricsString
@@ -125,13 +128,64 @@ class QoeMetricsReportingController(
         call?.enqueue(object : retrofit2.Callback<Void?> {
             override fun onResponse(call: Call<Void?>, response: Response<Void?>) {
                 handleResponseCode(response, TAG)
+                if (response.isSuccessful) {
+                    qoeMetricsReportingSessionDataEntry.scheme = clientMetricsReportingConfiguration.scheme
+                    qoeMetricsReportingSessionDataEntry.lastReport = metricsString
+                    notifyClient(clientId, SessionHandlerEvents.MetricsReporting.NEW_METRICS_REPORT)
+                    clientSessionData.lastMetricsConfigurationId = metricsReportingConfigurationId
+                } else {
+                    notifyError(clientId, provisioningSessionId, metricsReportingConfigurationId, qoeMetricsReportingSessionDataEntry, response.code(), response.message())
+                }
             }
 
             override fun onFailure(call: Call<Void?>, t: Throwable) {
                 Log.d(TAG, "Error sending metrics report")
+                notifyError(clientId, provisioningSessionId, metricsReportingConfigurationId, qoeMetricsReportingSessionDataEntry, 0, t.message)
             }
         })
 
+    }
+
+    /** ERROR_METRICS_REPORTING (table 11.6.2-3); the HTTP response code is 0 when there was no response */
+    private fun notifyError(
+        clientId: Int,
+        provisioningSessionId: String?,
+        metricsReportingConfigurationId: String?,
+        entry: QoeMetricsReportingSessionDataEntry,
+        httpResponseCode: Int,
+        message: String?
+    ) {
+        notifyClient(clientId, SessionHandlerEvents.Error.ERROR_METRICS_REPORTING) {
+            putString(SessionHandlerBundleKeys.PROVISIONING_SESSION_ID, provisioningSessionId)
+            putString(SessionHandlerBundleKeys.SERVER_ADDRESS, entry.reportingSelectedServerAddress)
+            putString(SessionHandlerBundleKeys.METRICS_REPORTING_CONFIGURATION_ID, metricsReportingConfigurationId)
+            putInt(SessionHandlerBundleKeys.HTTP_RESPONSE_CODE, httpResponseCode)
+            putString(SessionHandlerBundleKeys.ERROR_MESSAGE, message)
+        }
+    }
+
+    /** The status of table 11.6.2-1: lastMetricsReport with its identifiers, scheme and the report */
+    fun handleGetMetricsReportingStatus(msg: Message) {
+        val clientId = msg.sendingUid
+        val session = clientsSessionData[clientId]
+        val reply = Bundle()
+        reply.putString(SessionHandlerBundleKeys.MEDIA_DELIVERY_SESSION_IDENTIFIER, session?.mediaDeliverySessionId)
+        val configurationId = session?.lastMetricsConfigurationId
+        val entry = configurationId?.let { session.qoeMetricsReportingSessionData[it] }
+        if (entry?.lastReport != null) {
+            reply.putString(
+                SessionHandlerBundleKeys.PROVISIONING_SESSION_ID,
+                session.serviceAccessInformationSessionData.serviceAccessInformation?.provisioningSessionId
+            )
+            reply.putString(SessionHandlerBundleKeys.METRICS_REPORTING_CONFIGURATION_ID, configurationId)
+            reply.putString(SessionHandlerBundleKeys.SCHEME, entry.scheme)
+            reply.putString(SessionHandlerBundleKeys.METRICS_REPORT, entry.lastReport)
+        }
+        outgoingMessageHandler.sendMessage(
+            SessionHandlerMessageTypes.GET_METRICS_REPORTING_STATUS_REPLY,
+            reply,
+            msg.replyTo ?: session?.messenger
+        )
     }
 
     override fun initializeReportingTimer(clientId: Int, delay: Long?) {
@@ -173,7 +227,8 @@ class QoeMetricsReportingController(
     private fun startSingleReportingTimer(
         clientId: Int,
         delay: Long? = null,
-        clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration
+        clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration,
+        announce: Boolean = true
     ) {
 
         val qoeMetricsReportingSessionDataEntry = getQoeMetricsReportingSessionDataEntry(
@@ -214,6 +269,9 @@ class QoeMetricsReportingController(
         )
 
         qoeMetricsReportingSessionDataEntry.reportingTimer = timer
+        if (announce) {
+            notifyClient(clientId, SessionHandlerEvents.MetricsReporting.METRICS_REPORTING_ACTIVATED)
+        }
     }
 
     private fun getQoeMetricsReportingSessionDataEntry(
@@ -385,8 +443,15 @@ class QoeMetricsReportingController(
     }
 
     private fun stopSingleReportingTimer(qoeMetricsReportingSessionDataEntry: QoeMetricsReportingSessionDataEntry) {
-        qoeMetricsReportingSessionDataEntry.reportingTimer?.cancel()
+        cancelSingleReportingTimer(qoeMetricsReportingSessionDataEntry)
+    }
+
+    /** Cancel the timer without telling the client; returns whether one was running */
+    private fun cancelSingleReportingTimer(qoeMetricsReportingSessionDataEntry: QoeMetricsReportingSessionDataEntry): Boolean {
+        val timer = qoeMetricsReportingSessionDataEntry.reportingTimer ?: return false
+        timer.cancel()
         qoeMetricsReportingSessionDataEntry.reportingTimer = null
+        return true
     }
 
     override fun resetClientSession(clientId: Int) {
@@ -404,8 +469,12 @@ class QoeMetricsReportingController(
         val qoeMetricsReportingSessionData =
             clientsSessionData[clientId]?.qoeMetricsReportingSessionData ?: return
 
+        var stopped = false
         for (qoeMetricsReportingSessionDataEntry in qoeMetricsReportingSessionData.values) {
-            stopSingleReportingTimer(qoeMetricsReportingSessionDataEntry)
+            if (cancelSingleReportingTimer(qoeMetricsReportingSessionDataEntry)) stopped = true
+        }
+        if (stopped) {
+            notifyClient(clientId, SessionHandlerEvents.MetricsReporting.METRICS_REPORTING_STOPPED)
         }
     }
 

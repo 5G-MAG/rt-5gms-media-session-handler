@@ -1,7 +1,10 @@
 package com.fivegmag.a5gmsmediasessionhandler.controller
 
 import android.util.Log
+import android.os.Bundle
+import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerBundleKeys
 import com.fivegmag.a5gmscommonlibrary.helpers.Utils
+import com.fivegmag.a5gmsmediasessionhandler.service.OutgoingMessageHandler
 import com.fivegmag.a5gmsmediasessionhandler.eventbus.ServiceAccessInformationUpdatedEvent
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import org.greenrobot.eventbus.EventBus
@@ -12,6 +15,21 @@ abstract class ReportingController(
 ) : IController {
 
     val utils = Utils()
+
+    protected abstract val outgoingMessageHandler: OutgoingMessageHandler
+
+    /**
+     * Send a notification event of TS 26.510 V19.2.0 clause 11.5 or 11.6 to the client of a media delivery session; the payload starts
+     * with the media delivery session identifier. Nothing is sent when the client has no media delivery session.
+     */
+    fun notifyClient(clientId: Int, event: String, addPayload: Bundle.() -> Unit = {}) {
+        val session = clientsSessionData[clientId] ?: return
+        if (session.generalStatus == null) return
+        val payload = Bundle()
+        payload.putString(SessionHandlerBundleKeys.MEDIA_DELIVERY_SESSION_IDENTIFIER, session.mediaDeliverySessionId)
+        payload.addPayload()
+        outgoingMessageHandler.sendNotification(event, payload, session.messenger)
+    }
 
     abstract fun handleServiceAccessInformationChanges(
         serviceAccessInformationUpdatedEvent: ServiceAccessInformationUpdatedEvent

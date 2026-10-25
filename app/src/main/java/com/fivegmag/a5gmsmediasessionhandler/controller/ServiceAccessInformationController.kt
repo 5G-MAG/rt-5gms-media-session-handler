@@ -6,6 +6,7 @@ import android.util.Log
 import com.fivegmag.a5gmscommonlibrary.helpers.Utils
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
+import com.fivegmag.a5gmscommonlibrary.models.StreamingAccess
 import com.fivegmag.a5gmsmediasessionhandler.eventbus.ServiceAccessInformationUpdatedEvent
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import com.fivegmag.a5gmsmediasessionhandler.models.ServiceAccessInformationSessionData
@@ -38,6 +39,9 @@ class ServiceAccessInformationController(
     }
 
     private val utils = Utils()
+
+    /** Called when an update of the Service Access Information changes the streaming access (TS 26.510 V19.2.0 table 11.2.3-2) */
+    var onStreamingAccessUpdated: ((Int, StreamingAccess) -> Unit)? = null
     private var defaultServiceAccessInformationTimerInterval: Long = 0
 
     fun initialize(configurationProperties: Properties) {
@@ -148,17 +152,7 @@ class ServiceAccessInformationController(
                 clientsSessionData[clientId]?.serviceAccessInformationSessionData?.responseHeaders
             )
         ) {
-            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation =
-                resource
-
-            EventBus.getDefault().post(
-                ServiceAccessInformationUpdatedEvent(
-                    clientId,
-                    previousServiceAccessInformation,
-                    clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation
-                )
-            )
-
+            adoptServiceAccessInformation(clientId, resource, previousServiceAccessInformation)
         }
 
         // Start the re-requesting of the Service Access Information according to the max-age header
@@ -170,6 +164,40 @@ class ServiceAccessInformationController(
 
         // Save current headers
         clientsSessionData[clientId]?.serviceAccessInformationSessionData?.responseHeaders = headers
+    }
+
+    private fun adoptServiceAccessInformation(
+        clientId: Int,
+        resource: ServiceAccessInformation,
+        previousServiceAccessInformation: ServiceAccessInformation?
+    ) {
+        clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation =
+            resource
+
+        val updatedStreamingAccess = resource.streamingAccess
+        if (previousServiceAccessInformation != null && updatedStreamingAccess != previousServiceAccessInformation.streamingAccess) {
+            onStreamingAccessUpdated?.invoke(clientId, updatedStreamingAccess)
+        }
+
+        EventBus.getDefault().post(
+            ServiceAccessInformationUpdatedEvent(
+                clientId,
+                previousServiceAccessInformation,
+                resource
+            )
+        )
+    }
+
+    /**
+     * An update of the Service Access Information that the Media AF published on the notification channel (TS 26.510 V19.2.0 clause 10.2);
+     * it is taken over when it differs from the one the Media Session Handler holds.
+     */
+    fun handleNotifiedServiceAccessInformation(clientId: Int, resource: ServiceAccessInformation) {
+        val previous = clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation
+        Log.d(TAG, "Notified Service Access Information for client $clientId: held=${previous != null}, differs=${previous != resource}")
+        if (previous != null && previous != resource) {
+            adoptServiceAccessInformation(clientId, resource, previous)
+        }
     }
 
     private fun startServiceAccessInformationUpdateTimer(

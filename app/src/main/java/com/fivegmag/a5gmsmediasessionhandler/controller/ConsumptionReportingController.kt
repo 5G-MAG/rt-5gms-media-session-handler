@@ -5,6 +5,8 @@ import android.os.Message
 import android.util.Log
 import com.fivegmag.a5gmscommonlibrary.consumptionReporting.ConsumptionRequest
 import com.fivegmag.a5gmscommonlibrary.helpers.ContentTypes
+import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerBundleKeys
+import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerEvents
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.models.ClientConsumptionReportingConfiguration
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
@@ -27,7 +29,7 @@ import java.util.TimerTask
 class ConsumptionReportingController(
     clientsSessionData: HashMap<Int, ClientSessionData>,
     private val retrofitBuilder: Retrofit.Builder,
-    private val outgoingMessageHandler: OutgoingMessageHandler
+    override val outgoingMessageHandler: OutgoingMessageHandler
 ) :
     ReportingController(
         clientsSessionData
@@ -51,9 +53,9 @@ class ConsumptionReportingController(
             return
         }
 
-        // Reset the timer once we received a report
-        stopReportingTimer(clientId)
-        startReportingTimer(clientId, null)
+        // Reset the timer once we received a report; this is not an end and a new start of consumption reporting
+        cancelReportingTimer(clientId)
+        startReportingTimer(clientId, null, false)
 
         val clientSessionData = clientsSessionData[clientId]
         val provisioningSessionId =
@@ -76,13 +78,52 @@ class ConsumptionReportingController(
             call?.enqueue(object : retrofit2.Callback<Void?> {
                 override fun onResponse(call: Call<Void?>, response: Response<Void?>) {
                     handleResponseCode(response, TAG)
+                    if (response.isSuccessful) {
+                        clientSessionData.consumptionReportingSessionData.lastReport = reportWithSessionId
+                        notifyClient(clientId, SessionHandlerEvents.ConsumptionReporting.NEW_CONSUMPTION_REPORT)
+                    } else {
+                        notifyError(clientId, provisioningSessionId, response.code(), response.message())
+                    }
                 }
 
                 override fun onFailure(call: Call<Void?>, t: Throwable) {
                     Log.d(TAG, "Error sending consumption report")
+                    notifyError(clientId, provisioningSessionId, 0, t.message)
                 }
             })
         }
+    }
+
+    /** ERROR_CONSUMPTION_REPORTING (table 11.5.2-3); the HTTP response code is 0 when there was no response */
+    private fun notifyError(clientId: Int, provisioningSessionId: String?, httpResponseCode: Int, message: String?) {
+        notifyClient(clientId, SessionHandlerEvents.Error.ERROR_CONSUMPTION_REPORTING) {
+            putString(SessionHandlerBundleKeys.PROVISIONING_SESSION_ID, provisioningSessionId)
+            putString(
+                SessionHandlerBundleKeys.SERVER_ADDRESS,
+                clientsSessionData[clientId]?.consumptionReportingSessionData?.reportingSelectedServerAddress
+            )
+            putInt(SessionHandlerBundleKeys.HTTP_RESPONSE_CODE, httpResponseCode)
+            putString(SessionHandlerBundleKeys.ERROR_MESSAGE, message)
+        }
+    }
+
+    /** The status of table 11.5.2-1: the most recently sent consumption report */
+    fun handleGetConsumptionReportingStatus(msg: Message) {
+        val clientId = msg.sendingUid
+        val reply = Bundle()
+        reply.putString(
+            SessionHandlerBundleKeys.MEDIA_DELIVERY_SESSION_IDENTIFIER,
+            clientsSessionData[clientId]?.mediaDeliverySessionId
+        )
+        reply.putString(
+            SessionHandlerBundleKeys.CONSUMPTION_REPORT,
+            clientsSessionData[clientId]?.consumptionReportingSessionData?.lastReport
+        )
+        outgoingMessageHandler.sendMessage(
+            SessionHandlerMessageTypes.GET_CONSUMPTION_REPORTING_STATUS_REPLY,
+            reply,
+            msg.replyTo ?: clientsSessionData[clientId]?.messenger
+        )
     }
 
     fun getConsumptionRequest(serviceAccessInformation: ServiceAccessInformation?): ConsumptionRequest {
@@ -143,7 +184,8 @@ class ConsumptionReportingController(
 
     private fun startReportingTimer(
         clientId: Int,
-        delay: Long? = null
+        delay: Long? = null,
+        announce: Boolean = true
     ) {
 
         // Endpoint not set
@@ -178,6 +220,9 @@ class ConsumptionReportingController(
             reportingInterval
         )
         clientsSessionData[clientId]?.consumptionReportingSessionData?.reportingTimer = timer
+        if (announce) {
+            notifyClient(clientId, SessionHandlerEvents.ConsumptionReporting.CONSUMPTION_REPORTING_ACTIVATED)
+        }
     }
 
     fun requestConsumptionReportFromClient(
@@ -305,9 +350,17 @@ class ConsumptionReportingController(
     override fun stopReportingTimer(
         clientId: Int
     ) {
-        if (clientsSessionData[clientId]?.consumptionReportingSessionData?.reportingTimer != null) {
-            clientsSessionData[clientId]?.consumptionReportingSessionData?.reportingTimer?.cancel()
-            clientsSessionData[clientId]?.consumptionReportingSessionData?.reportingTimer = null
+        if (cancelReportingTimer(clientId)) {
+            notifyClient(clientId, SessionHandlerEvents.ConsumptionReporting.CONSUMPTION_REPORTING_STOPPED)
         }
+    }
+
+    /** Cancel the timer without telling the client; returns whether one was running */
+    private fun cancelReportingTimer(clientId: Int): Boolean {
+        val data = clientsSessionData[clientId]?.consumptionReportingSessionData ?: return false
+        val timer = data.reportingTimer ?: return false
+        timer.cancel()
+        data.reportingTimer = null
+        return true
     }
 }
