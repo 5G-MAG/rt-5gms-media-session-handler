@@ -120,7 +120,7 @@ class QoeMetricsReportingController(
             provisioningSessionId,
             metricsReportingConfigurationId,
             requestBody,
-            "sid=\"${clientSessionData.mediaDeliverySessionId}\""
+            formatCmcdSessionHeader(clientSessionData.mediaDeliverySessionId)
         )
 
         call?.enqueue(object : retrofit2.Callback<Void?> {

@@ -66,7 +66,7 @@ class ConsumptionReportingController(
                 clientSessionData.consumptionReportingSessionData.api!!.sendConsumptionReport(
                     provisioningSessionId,
                     requestBody,
-                    "sid=\"${clientSessionData.mediaDeliverySessionId}\""
+                    formatCmcdSessionHeader(clientSessionData.mediaDeliverySessionId)
                 )
 
             call?.enqueue(object : retrofit2.Callback<Void?> {
