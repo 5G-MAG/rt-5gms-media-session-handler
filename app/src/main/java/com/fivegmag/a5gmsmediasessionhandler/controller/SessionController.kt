@@ -16,7 +16,7 @@ class SessionController(
 
     fun registerClient(msg: Message) {
         val messenger = msg.replyTo
-        clientsSessionData[msg.sendingUid] = ClientSessionData(messenger)
+        clientsSessionData[ClientKey.of(msg)] = ClientSessionData(messenger)
     }
 
     fun unregisterClient(clientId: Int) {
@@ -37,7 +37,7 @@ class SessionController(
             clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation
         if (serviceAccessInformation != null && (finalEntryPoints == null || finalEntryPoints.size == 0)) {
             finalEntryPoints =
-                serviceAccessInformation.streamingAccess.entryPoints
+                serviceAccessInformation.streamingAccess?.entryPoints
         }
 
         return finalEntryPoints

@@ -12,6 +12,7 @@ import com.fivegmag.a5gmscommonlibrary.models.ClientConsumptionReportingConfigur
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmsmediasessionhandler.eventbus.ServiceAccessInformationUpdatedEvent
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
+import com.fivegmag.a5gmsmediasessionhandler.models.bearer
 import com.fivegmag.a5gmsmediasessionhandler.models.ConsumptionReportingSessionData
 import com.fivegmag.a5gmsmediasessionhandler.network.IConsumptionReportingApi
 import com.fivegmag.a5gmsmediasessionhandler.service.OutgoingMessageHandler
@@ -45,7 +46,7 @@ class ConsumptionReportingController(
         val bundle: Bundle = msg.data
         val consumptionReport: String? =
             bundle.getString("consumptionReport")
-        val clientId = msg.sendingUid
+        val clientId = ClientKey.of(msg)
 
         if (clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientConsumptionReportingConfiguration == null
             || clientsSessionData[clientId]?.consumptionReportingSessionData?.api == null
@@ -53,9 +54,19 @@ class ConsumptionReportingController(
             return
         }
 
-        // Reset the timer once we received a report; this is not an end and a new start of consumption reporting
-        cancelReportingTimer(clientId)
-        startReportingTimer(clientId, null, false)
+        // a client that was not selected by samplePercentage sends no report (TS 26.510 V19.2.0 clause 5.3.6.2)
+        if (clientsSessionData[clientId]?.consumptionReportingSessionData?.selected != true) {
+            return
+        }
+
+        // Reset the timer once we received a report; this is not an end and a new start of consumption reporting. Without a
+        // reportingInterval there is no timer: the report of the end of consumption is the only one.
+        val interval =
+            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientConsumptionReportingConfiguration?.reportingInterval
+        if (interval != null && interval > 0) {
+            cancelReportingTimer(clientId)
+            startReportingTimer(clientId, null)
+        }
 
         val clientSessionData = clientsSessionData[clientId]
         val provisioningSessionId =
@@ -72,6 +83,7 @@ class ConsumptionReportingController(
             val call: Call<Void>? =
                 clientSessionData.consumptionReportingSessionData.api!!.sendConsumptionReport(
                     provisioningSessionId,
+                    bearer(clientSessionData.accessToken),
                     requestBody
                 )
 
@@ -109,7 +121,7 @@ class ConsumptionReportingController(
 
     /** The status of table 11.5.2-1: the most recently sent consumption report */
     fun handleGetConsumptionReportingStatus(msg: Message) {
-        val clientId = msg.sendingUid
+        val clientId = ClientKey.of(msg)
         val reply = Bundle()
         reply.putString(
             SessionHandlerBundleKeys.MEDIA_DELIVERY_SESSION_IDENTIFIER,
@@ -174,9 +186,13 @@ class ConsumptionReportingController(
         val clientConsumptionReportingConfiguration: ClientConsumptionReportingConfiguration? =
             clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientConsumptionReportingConfiguration
 
-        if (clientConsumptionReportingConfiguration?.reportingInterval != null &&
-            clientConsumptionReportingConfiguration.reportingInterval!! > 0 &&
-            shouldReportAccordingToSamplePercentage(clientConsumptionReportingConfiguration.samplePercentage)
+        // the draw of samplePercentage is made once: it decides on every report of this media delivery session
+        val selected = shouldReportAccordingToSamplePercentage(clientConsumptionReportingConfiguration?.samplePercentage)
+        clientsSessionData[clientId]?.consumptionReportingSessionData?.selected = selected
+        if (selected) activate(clientId)
+
+        if (selected && clientConsumptionReportingConfiguration?.reportingInterval != null &&
+            clientConsumptionReportingConfiguration.reportingInterval!! > 0
         ) {
             startReportingTimer(clientId, delay)
         }
@@ -184,8 +200,7 @@ class ConsumptionReportingController(
 
     private fun startReportingTimer(
         clientId: Int,
-        delay: Long? = null,
-        announce: Boolean = true
+        delay: Long? = null
     ) {
 
         // Endpoint not set
@@ -201,9 +216,10 @@ class ConsumptionReportingController(
         val clientConsumptionReportingConfiguration: ClientConsumptionReportingConfiguration =
             clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientConsumptionReportingConfiguration
                 ?: return
-        val timer = Timer()
         val reportingInterval =
-            clientConsumptionReportingConfiguration.reportingInterval!!.times(1000).toLong()
+            (clientConsumptionReportingConfiguration.reportingInterval ?: return).times(1000).toLong()
+        if (reportingInterval <= 0) return
+        val timer = Timer()
         var finalDelay = delay
         if (finalDelay == null) {
             finalDelay = reportingInterval
@@ -220,7 +236,13 @@ class ConsumptionReportingController(
             reportingInterval
         )
         clientsSessionData[clientId]?.consumptionReportingSessionData?.reportingTimer = timer
-        if (announce) {
+    }
+
+    /** Consumption reporting is active from the draw that selects the client, with or without a timer */
+    private fun activate(clientId: Int) {
+        val data = clientsSessionData[clientId]?.consumptionReportingSessionData ?: return
+        if (!data.active) {
+            data.active = true
             notifyClient(clientId, SessionHandlerEvents.ConsumptionReporting.CONSUMPTION_REPORTING_ACTIVATED)
         }
     }
@@ -289,22 +311,15 @@ class ConsumptionReportingController(
             setReportingEndpoint(clientId)
         }
 
-        // if sample percentage is set to 0 or no server addresses are available stop consumption reporting
-        if (updatedClientConsumptionReportingConfiguration.samplePercentage <= 0) {
-            stopReportingTimer(clientId)
-        }
-
-        // if sample percentage is set to 100 start consumption reporting
-        if (updatedClientConsumptionReportingConfiguration.samplePercentage >= 100) {
-            startReportingTimer(clientId)
-        }
-
-        // if sample percentage was previously zero and is now higher than zero evaluate again
-        if (updatedClientConsumptionReportingConfiguration.samplePercentage > 0 && previousClientConsumptionReportingConfiguration.samplePercentage <= 0 && shouldReportAccordingToSamplePercentage(
-                updatedClientConsumptionReportingConfiguration.samplePercentage
-            )
-        ) {
-            startReportingTimer(clientId)
+        // a changed samplePercentage is a new draw (TS 26.510 V19.2.0 clause 5.3.6.2): the client is selected or not for the rest of the session
+        if (previousClientConsumptionReportingConfiguration.samplePercentage != updatedClientConsumptionReportingConfiguration.samplePercentage) {
+            val selected = shouldReportAccordingToSamplePercentage(updatedClientConsumptionReportingConfiguration.samplePercentage)
+            clientsSessionData[clientId]?.consumptionReportingSessionData?.selected = selected
+            if (selected) {
+                startReportingTimer(clientId)
+            } else {
+                stopReportingTimer(clientId)
+            }
         }
 
         // updates of the reporting interval are handled automatically when stopping / starting the timer
@@ -350,7 +365,10 @@ class ConsumptionReportingController(
     override fun stopReportingTimer(
         clientId: Int
     ) {
-        if (cancelReportingTimer(clientId)) {
+        cancelReportingTimer(clientId)
+        val data = clientsSessionData[clientId]?.consumptionReportingSessionData ?: return
+        if (data.active) {
+            data.active = false
             notifyClient(clientId, SessionHandlerEvents.ConsumptionReporting.CONSUMPTION_REPORTING_STOPPED)
         }
     }

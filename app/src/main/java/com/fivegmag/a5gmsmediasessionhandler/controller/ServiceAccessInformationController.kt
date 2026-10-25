@@ -9,6 +9,7 @@ import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmscommonlibrary.models.StreamingAccess
 import com.fivegmag.a5gmsmediasessionhandler.eventbus.ServiceAccessInformationUpdatedEvent
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
+import com.fivegmag.a5gmsmediasessionhandler.models.bearer
 import com.fivegmag.a5gmsmediasessionhandler.models.ServiceAccessInformationSessionData
 import com.fivegmag.a5gmsmediasessionhandler.network.IServiceAccessInformationApi
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -53,7 +54,7 @@ class ServiceAccessInformationController(
 
     fun setM5Endpoint(msg: Message) {
         val bundle: Bundle = msg.data
-        val clientId = msg.sendingUid
+        val clientId = ClientKey.of(msg)
         val m5BaseUrl: String? = bundle.getString("m5BaseUrl")
         Log.i(SessionController.TAG, "Setting M5 endpoint to $m5BaseUrl")
         if (m5BaseUrl != null) {
@@ -61,7 +62,7 @@ class ServiceAccessInformationController(
             val retrofit = retrofitBuilder
                 .baseUrl(m5BaseUrl)
                 .build()
-            clientsSessionData[msg.sendingUid]?.serviceAccessInformationSessionData?.api =
+            clientsSessionData[ClientKey.of(msg)]?.serviceAccessInformationSessionData?.api =
                 retrofit.create(IServiceAccessInformationApi::class.java)
         }
     }
@@ -98,7 +99,8 @@ class ServiceAccessInformationController(
             clientsSessionData[clientId]?.serviceAccessInformationSessionData?.api?.fetchServiceAccessInformation(
                 provisioningSessionId,
                 null,
-                null
+                null,
+                bearer(clientsSessionData[clientId]?.accessToken)
             )
         return suspendCancellableCoroutine { continuation ->
             call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
@@ -171,11 +173,15 @@ class ServiceAccessInformationController(
         resource: ServiceAccessInformation,
         previousServiceAccessInformation: ServiceAccessInformation?
     ) {
+        // the configurations of the manifest stay in force for the session (TS 26.512 V19.3.0 clause 4.9.2)
+        clientsSessionData[clientId]?.manifestMetricsConfigurations?.let { resource.clientMetricsReportingConfigurations = it }
         clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation =
             resource
 
         val updatedStreamingAccess = resource.streamingAccess
-        if (previousServiceAccessInformation != null && updatedStreamingAccess != previousServiceAccessInformation.streamingAccess) {
+        if (previousServiceAccessInformation != null && updatedStreamingAccess != null &&
+            updatedStreamingAccess != previousServiceAccessInformation.streamingAccess
+        ) {
             onStreamingAccessUpdated?.invoke(clientId, updatedStreamingAccess)
         }
 
@@ -234,7 +240,8 @@ class ServiceAccessInformationController(
                             ),
                             clientsSessionData[sendingUid]?.serviceAccessInformationSessionData?.responseHeaders?.get(
                                 "last-modified"
-                            )
+                            ),
+                            bearer(clientsSessionData[sendingUid]?.accessToken)
                         )
 
                     call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {

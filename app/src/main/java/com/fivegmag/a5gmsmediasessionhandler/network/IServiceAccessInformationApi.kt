@@ -21,6 +21,8 @@ interface IServiceAccessInformationApi {
     fun fetchServiceAccessInformation(
         @Path("externalServiceId") externalServiceId: String?,
         @Header("If-None-Match") ifNoneMatch: String?,
-        @Header("If-Modified-Since") ifModifiedSince: String?
+        @Header("If-Modified-Since") ifModifiedSince: String?,
+        // the access token of the media delivery session as a bearer token (TS 26.510 V19.2.0 clause 7.4.3), absent without one
+        @Header("Authorization") authorization: String?
     ): Call<ServiceAccessInformation>?
 }

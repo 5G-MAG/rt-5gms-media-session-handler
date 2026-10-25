@@ -33,6 +33,7 @@ class MediaSessionHandlerMessengerService : Service() {
      */
     override fun onBind(intent: Intent): IBinder? {
         val configurationProperties = loadConfiguration()
+        incomingMessageHandler.context = this
         incomingMessageHandler.initialize(configurationProperties)
         nativeIncomingMessenger = incomingMessageHandler.getIncomingMessenger()
         outgoingMessageHandler.setNativeIncomingMessenger(nativeIncomingMessenger)

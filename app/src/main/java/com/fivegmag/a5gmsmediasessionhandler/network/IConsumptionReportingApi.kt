@@ -13,6 +13,7 @@ import com.fivegmag.a5gmscommonlibrary.helpers.ContentTypes
 import okhttp3.RequestBody
 import retrofit2.Call
 import retrofit2.http.Body
+import retrofit2.http.Header
 import retrofit2.http.Headers
 import retrofit2.http.Path
 import retrofit2.http.POST
@@ -23,6 +24,7 @@ interface IConsumptionReportingApi {
     @POST("provisioning-sessions/{provisioningSessionId}/consumption-reporting/")
     fun sendConsumptionReport(
         @Path("provisioningSessionId") provisioningSessionId: String?,
+        @Header("Authorization") authorization: String?,
         @Body requestBody: RequestBody?
     ): Call<Void>?
 }

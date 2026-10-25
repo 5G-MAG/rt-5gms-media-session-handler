@@ -16,7 +16,7 @@ class NotificationMessageParserUnitTest {
         assertNotNull(message)
         assertEquals("NOTIFICATION_SERVICE_ACCESS_INFORMATION", message!!.type)
         assertEquals("ps1", message.serviceAccessInformation!!.provisioningSessionId)
-        assertEquals("http://as.example/m.mpd", message.serviceAccessInformation!!.streamingAccess.entryPoints!![0].locator)
+        assertEquals("http://as.example/m.mpd", message.serviceAccessInformation!!.streamingAccess!!.entryPoints!![0].locator)
     }
 
     @Test

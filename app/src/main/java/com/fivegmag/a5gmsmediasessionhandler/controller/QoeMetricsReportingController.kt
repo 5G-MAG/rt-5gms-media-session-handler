@@ -13,6 +13,7 @@ import com.fivegmag.a5gmscommonlibrary.qoeMetricsReporting.QoeMetricsRequest
 import com.fivegmag.a5gmscommonlibrary.qoeMetricsReporting.QoeMetricsResponse
 import com.fivegmag.a5gmsmediasessionhandler.eventbus.ServiceAccessInformationUpdatedEvent
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
+import com.fivegmag.a5gmsmediasessionhandler.models.bearer
 import com.fivegmag.a5gmsmediasessionhandler.models.QoeMetricsReportingSessionDataEntry
 import com.fivegmag.a5gmsmediasessionhandler.network.IMetricsReportingApi
 import com.fivegmag.a5gmsmediasessionhandler.service.OutgoingMessageHandler
@@ -38,12 +39,25 @@ class QoeMetricsReportingController(
         const val TAG = "5GMS-QoeMetricsReportingController"
     }
 
+    private fun appliesTo(clientId: Int, configuration: ClientMetricsReportingConfiguration, mediaEntryPointUrl: String?): Boolean =
+        matchesUrlFilters(configuration.urlFilters, mediaEntryPointUrl) &&
+                SliceScope.applies(configuration.sliceScope, clientsSessionData[clientId]?.availableSlices)
+
+    /** Gives a Retrofit builder whose connections use the network of a Data Network (set by the owner of the HTTP client) */
+    var retrofitBuilderForNetwork: ((android.net.Network) -> Retrofit.Builder)? = null
+
+    private fun nowMs(): Long = System.nanoTime() / 1_000_000L
+
+    private fun windowOf(configuration: ClientMetricsReportingConfiguration) =
+        ReportingWindow(configuration.reportingStartOffset, configuration.reportingDuration)
+
     fun initializeReporting(
         clientId: Int,
-        serviceAccessInformation: ServiceAccessInformation
+        serviceAccessInformation: ServiceAccessInformation,
+        mediaEntryPointUrl: String?
     ) {
         if (serviceAccessInformation.clientMetricsReportingConfigurations != null && serviceAccessInformation.clientMetricsReportingConfigurations!!.size > 0) {
-            for (clientMetricsReportingConfiguration in serviceAccessInformation.clientMetricsReportingConfigurations!!)
+            for (clientMetricsReportingConfiguration in serviceAccessInformation.clientMetricsReportingConfigurations!!.filter { appliesTo(clientId, it, mediaEntryPointUrl) })
                 clientsSessionData[clientId]?.qoeMetricsReportingSessionData?.set(
                     clientMetricsReportingConfiguration.metricsReportingConfigurationId,
                     QoeMetricsReportingSessionDataEntry()
@@ -51,10 +65,10 @@ class QoeMetricsReportingController(
         }
     }
 
-    fun getQoeMetricsRequests(serviceAccessInformation: ServiceAccessInformation?): ArrayList<QoeMetricsRequest> {
+    fun getQoeMetricsRequests(clientId: Int, serviceAccessInformation: ServiceAccessInformation?, mediaEntryPointUrl: String?): ArrayList<QoeMetricsRequest> {
         if (serviceAccessInformation?.clientMetricsReportingConfigurations != null) {
             return getQoeMetricsRequestsByClientMetricsReportingConfigurations(
-                serviceAccessInformation.clientMetricsReportingConfigurations!!
+                ArrayList(serviceAccessInformation.clientMetricsReportingConfigurations!!.filter { appliesTo(clientId, it, mediaEntryPointUrl) })
             )
         }
 
@@ -85,7 +99,7 @@ class QoeMetricsReportingController(
         bundle.classLoader = QoeMetricsResponse::class.java.classLoader
         val playbackMetricsResponse: QoeMetricsResponse? =
             bundle.getParcelable("qoeMetricsResponse")
-        val clientId = msg.sendingUid
+        val clientId = ClientKey.of(msg)
 
         if (clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientMetricsReportingConfigurations == null
         ) {
@@ -99,18 +113,31 @@ class QoeMetricsReportingController(
             clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientMetricsReportingConfigurations?.find { it.metricsReportingConfigurationId == metricsReportingConfigurationId }
                 ?: return
 
-        if (clientMetricsReportingConfiguration.samplePercentage!! <= 0) {
-            return
-        }
-
         val qoeMetricsReportingSessionDataEntry =
             clientSessionData.qoeMetricsReportingSessionData[metricsReportingConfigurationId]
                 ?: return
 
-        // a restart after a report is not an end and a new start of metrics reporting
-        cancelSingleReportingTimer(qoeMetricsReportingSessionDataEntry)
+        // a client that was not selected by samplePercentage sends no report (TS 26.510 V19.2.0 clause 5.3.5.2)
+        if (!qoeMetricsReportingSessionDataEntry.selected) {
+            return
+        }
 
-        startSingleReportingTimer(clientId, null, clientMetricsReportingConfiguration, false)
+        // a report that was not requested comes from the end of the media delivery session: it is sent while the window of
+        // reportingStartOffset and reportingDuration is open (clause 5.3.5.2 and table 8.7.3.1-1)
+        if (qoeMetricsReportingSessionDataEntry.reportRequested) {
+            qoeMetricsReportingSessionDataEntry.reportRequested = false
+        } else if (!windowOf(clientMetricsReportingConfiguration).contains(nowMs() - qoeMetricsReportingSessionDataEntry.sessionStartMs)) {
+            Log.d(TAG, "Metrics report of [$metricsReportingConfigurationId] is outside the reporting window, not sent")
+            return
+        }
+
+        // a restart after a report is not an end and a new start of metrics reporting; without a reportingInterval the report of the
+        // end of the session is the only one and there is no timer
+        val interval = clientMetricsReportingConfiguration.reportingInterval
+        if (interval != null && interval > 0) {
+            cancelSingleReportingTimer(qoeMetricsReportingSessionDataEntry)
+            startSingleReportingTimer(clientId, null, clientMetricsReportingConfiguration)
+        }
 
         val api = qoeMetricsReportingSessionDataEntry.api ?: return
         val metricsString = playbackMetricsResponse?.metricsString
@@ -119,11 +146,24 @@ class QoeMetricsReportingController(
         val provisioningSessionId =
             clientSessionData.serviceAccessInformationSessionData.serviceAccessInformation?.provisioningSessionId
 
-        val call: Call<Void>? = api.sendMetricsReport(
-            provisioningSessionId,
-            metricsReportingConfigurationId,
-            requestBody
-        )
+        val call: Call<Void>? = if (metricsReportingConfigurationId?.startsWith(ManifestMetricsConfiguration.ID_PREFIX) == true) {
+            // a manifest configuration: the report goes to the reporting server of the manifest, in the format that it asks for
+            val gzip = clientSessionData.manifestGzip[metricsReportingConfigurationId] == true
+            val server = qoeMetricsReportingSessionDataEntry.reportingSelectedServerAddress ?: return
+            val body = if (gzip && metricsString != null) {
+                val out = java.io.ByteArrayOutputStream()
+                java.util.zip.GZIPOutputStream(out).use { it.write(metricsString.toByteArray(Charsets.UTF_8)) }
+                RequestBody.create(mediaType, out.toByteArray())
+            } else requestBody
+            api.sendMetricsReportToServer(server, ContentTypes.QOE_REPORT_XML, if (gzip) "gzip" else null, body)
+        } else {
+            api.sendMetricsReport(
+                provisioningSessionId,
+                metricsReportingConfigurationId,
+                bearer(clientSessionData.accessToken),
+                requestBody
+            )
+        }
 
         call?.enqueue(object : retrofit2.Callback<Void?> {
             override fun onResponse(call: Call<Void?>, response: Response<Void?>) {
@@ -166,7 +206,7 @@ class QoeMetricsReportingController(
 
     /** The status of table 11.6.2-1: lastMetricsReport with its identifiers, scheme and the report */
     fun handleGetMetricsReportingStatus(msg: Message) {
-        val clientId = msg.sendingUid
+        val clientId = ClientKey.of(msg)
         val session = clientsSessionData[clientId]
         val reply = Bundle()
         reply.putString(SessionHandlerBundleKeys.MEDIA_DELIVERY_SESSION_IDENTIFIER, session?.mediaDeliverySessionId)
@@ -194,13 +234,20 @@ class QoeMetricsReportingController(
                 ?: return
 
         for (clientMetricsReportingConfiguration in clientMetricsReportingConfigurations) {
-            if (shouldReport(clientMetricsReportingConfiguration)) {
-                initializeReportingTimerForConfiguration(
-                    clientId,
-                    delay,
-                    clientMetricsReportingConfiguration
-                )
-            }
+            // the draw of samplePercentage is made once per configuration and media delivery session (clause 5.3.5.2)
+            val entry = getQoeMetricsReportingSessionDataEntry(
+                clientId,
+                clientMetricsReportingConfiguration.metricsReportingConfigurationId
+            ) ?: continue
+            entry.sessionStartMs = nowMs()
+            entry.selected = shouldReportAccordingToSamplePercentage(clientMetricsReportingConfiguration.samplePercentage)
+            entry.drawnForSamplePercentage = clientMetricsReportingConfiguration.samplePercentage
+            if (entry.selected) activate(clientId, entry)
+            initializeReportingTimerForConfiguration(
+                clientId,
+                delay,
+                clientMetricsReportingConfiguration
+            )
         }
     }
 
@@ -221,14 +268,39 @@ class QoeMetricsReportingController(
             return
         }
 
-        startSingleReportingTimer(clientId, delay, clientMetricsReportingConfiguration)
+        val window = windowOf(clientMetricsReportingConfiguration)
+        if (qoeMetricsReportingSessionDataEntry.selected && window.isSingleReport) {
+            // reportingDuration zero: a single report at reportingStartOffset
+            startSingleReportTimer(clientId, clientMetricsReportingConfiguration, window)
+        } else if (qoeMetricsReportingSessionDataEntry.selected && shouldReport(clientMetricsReportingConfiguration)) {
+            // a timer only with a reportingInterval; without one the report of the end of the session is the only one
+            startSingleReportingTimer(clientId, delay, clientMetricsReportingConfiguration)
+        }
+    }
+
+    private fun startSingleReportTimer(
+        clientId: Int,
+        clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration,
+        window: ReportingWindow
+    ) {
+        val entry = getQoeMetricsReportingSessionDataEntry(
+            clientId,
+            clientMetricsReportingConfiguration.metricsReportingConfigurationId
+        ) ?: return
+        if (entry.singleReportTimer != null) return
+        val timer = Timer()
+        timer.schedule(object : TimerTask() {
+            override fun run() {
+                requestMetricsForSchemeFromClient(clientId, clientMetricsReportingConfiguration)
+            }
+        }, window.startOffsetMs)
+        entry.singleReportTimer = timer
     }
 
     private fun startSingleReportingTimer(
         clientId: Int,
         delay: Long? = null,
-        clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration,
-        announce: Boolean = true
+        clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration
     ) {
 
         val qoeMetricsReportingSessionDataEntry = getQoeMetricsReportingSessionDataEntry(
@@ -247,9 +319,11 @@ class QoeMetricsReportingController(
             return
         }
 
+        val configuredInterval = clientMetricsReportingConfiguration.reportingInterval ?: return
+        if (configuredInterval <= 0) return
         val timer = Timer()
         val reportingInterval =
-            clientMetricsReportingConfiguration.reportingInterval!!.times(1000)
+            configuredInterval.times(1000)
         var finalDelay = delay
         if (finalDelay == null) {
             finalDelay = reportingInterval
@@ -258,6 +332,14 @@ class QoeMetricsReportingController(
         timer.scheduleAtFixedRate(
             object : TimerTask() {
                 override fun run() {
+                    // periodic reports only while the window of reportingStartOffset and reportingDuration is open
+                    val window = windowOf(clientMetricsReportingConfiguration)
+                    val elapsed = nowMs() - qoeMetricsReportingSessionDataEntry.sessionStartMs
+                    if (window.hasEnded(elapsed)) {
+                        cancel()
+                        return
+                    }
+                    if (!window.hasStarted(elapsed)) return
                     requestMetricsForSchemeFromClient(
                         clientId,
                         clientMetricsReportingConfiguration
@@ -265,11 +347,18 @@ class QoeMetricsReportingController(
                 }
             },
             finalDelay,
-            clientMetricsReportingConfiguration.reportingInterval!!.times(1000)
+            reportingInterval
         )
 
         qoeMetricsReportingSessionDataEntry.reportingTimer = timer
-        if (announce) {
+    }
+
+    /** Metrics reporting is active from the draw that selects the client for a configuration, with or without a timer */
+    private fun activate(clientId: Int, entry: QoeMetricsReportingSessionDataEntry) {
+        if (entry.active) return
+        val anyActive = clientsSessionData[clientId]?.qoeMetricsReportingSessionData?.values?.any { it.active } == true
+        entry.active = true
+        if (!anyActive) {
             notifyClient(clientId, SessionHandlerEvents.MetricsReporting.METRICS_REPORTING_ACTIVATED)
         }
     }
@@ -302,7 +391,40 @@ class QoeMetricsReportingController(
             clientMetricsReportingConfiguration.serverAddresses
         )
 
-        val retrofit = serverAddress?.let { retrofitBuilder.baseUrl(it).build() }
+        // dataNetworkName: the Data Network that the reports are sent over (TS 26.510 V19.2.0 table 8.7.3.1-1)
+        val builder: Retrofit.Builder = when (val selection = DataNetwork.select(clientMetricsReportingConfiguration.dataNetworkName)) {
+            is DataNetwork.Selection.Default -> retrofitBuilder
+            else -> {
+                val network = (selection as? DataNetwork.Selection.Capability)?.let {
+                    clientsSessionData[clientId]?.dataNetworks?.get(clientMetricsReportingConfiguration.dataNetworkName!!.lowercase())
+                }
+                val forNetwork = network?.let { retrofitBuilderForNetwork?.invoke(it) }
+                if (forNetwork == null) {
+                    qoeMetricsReportingSessionDataEntry.api = null
+                    notifyError(
+                        clientId,
+                        clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.provisioningSessionId,
+                        metricsReportingConfigurationId, qoeMetricsReportingSessionDataEntry, 0,
+                        "the Data Network [" + clientMetricsReportingConfiguration.dataNetworkName + "] is not available to the application"
+                    )
+                    return
+                }
+                forNetwork
+            }
+        }
+
+        if (serverAddress != null && metricsReportingConfigurationId.startsWith(ManifestMetricsConfiguration.ID_PREFIX)) {
+            // the reporting server of the manifest is used as it is: Retrofit takes its origin as the base and the whole URL per call
+            val uri = java.net.URI(clientMetricsReportingConfiguration.serverAddresses[0])
+            val base = "${uri.scheme}://${uri.authority}/"
+            qoeMetricsReportingSessionDataEntry.api =
+                builder.baseUrl(base).build().create(IMetricsReportingApi::class.java)
+            qoeMetricsReportingSessionDataEntry.reportingSelectedServerAddress =
+                clientMetricsReportingConfiguration.serverAddresses[0]
+            return
+        }
+
+        val retrofit = serverAddress?.let { builder.baseUrl(it).build() }
         if (retrofit != null) {
             qoeMetricsReportingSessionDataEntry.api =
                 retrofit.create(IMetricsReportingApi::class.java)
@@ -313,8 +435,7 @@ class QoeMetricsReportingController(
 
     private fun shouldReport(clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration): Boolean {
         return clientMetricsReportingConfiguration.reportingInterval != null &&
-                clientMetricsReportingConfiguration.reportingInterval!! > 0 &&
-                shouldReportAccordingToSamplePercentage(clientMetricsReportingConfiguration.samplePercentage)
+                clientMetricsReportingConfiguration.reportingInterval!! > 0
     }
 
     private fun requestMetricsForSchemeFromClient(
@@ -334,6 +455,8 @@ class QoeMetricsReportingController(
         qoeMetricsRequest.metrics = clientMetricsReportingConfiguration.metrics
         qoeMetricsRequest.metricsReportingConfigurationId =
             clientMetricsReportingConfiguration.metricsReportingConfigurationId
+        getQoeMetricsReportingSessionDataEntry(clientId, clientMetricsReportingConfiguration.metricsReportingConfigurationId)
+            ?.reportRequested = true
         val bundle = Bundle()
         bundle.putParcelable("qoeMetricsRequest", qoeMetricsRequest)
         val messenger = clientsSessionData[clientId]?.messenger
@@ -403,6 +526,8 @@ class QoeMetricsReportingController(
 
     private fun resetSingleQoeMetricsReportingSession(qoeMetricsReportingSessionDataEntry: QoeMetricsReportingSessionDataEntry) {
         qoeMetricsReportingSessionDataEntry.reportingTimer?.cancel()
+        qoeMetricsReportingSessionDataEntry.singleReportTimer?.cancel()
+        qoeMetricsReportingSessionDataEntry.singleReportTimer = null
     }
 
     private fun handleConfigurationUpdate(
@@ -428,14 +553,18 @@ class QoeMetricsReportingController(
                 return
             }
 
-            // if sample percentage is set to 0 or no server addresses are available stop reporting
-            if (updatedConfiguration.samplePercentage!! <= 0 && qoeMetricsReportingSessionDataEntry != null) {
-                stopSingleReportingTimer(qoeMetricsReportingSessionDataEntry)
-            }
-
-            // if sample percentage is set to 100 start reporting
-            if (updatedConfiguration.samplePercentage!! >= 100 && qoeMetricsReportingSessionDataEntry != null) {
-                startSingleReportingTimer(clientId, 0, updatedConfiguration)
+            // a changed samplePercentage is a new draw for the rest of the session
+            if (qoeMetricsReportingSessionDataEntry != null &&
+                qoeMetricsReportingSessionDataEntry.drawnForSamplePercentage != updatedConfiguration.samplePercentage
+            ) {
+                qoeMetricsReportingSessionDataEntry.drawnForSamplePercentage = updatedConfiguration.samplePercentage
+                qoeMetricsReportingSessionDataEntry.selected =
+                    shouldReportAccordingToSamplePercentage(updatedConfiguration.samplePercentage)
+                if (qoeMetricsReportingSessionDataEntry.selected) {
+                    startSingleReportingTimer(clientId, 0, updatedConfiguration)
+                } else {
+                    stopSingleReportingTimer(qoeMetricsReportingSessionDataEntry)
+                }
             }
 
         }
@@ -448,6 +577,8 @@ class QoeMetricsReportingController(
 
     /** Cancel the timer without telling the client; returns whether one was running */
     private fun cancelSingleReportingTimer(qoeMetricsReportingSessionDataEntry: QoeMetricsReportingSessionDataEntry): Boolean {
+        qoeMetricsReportingSessionDataEntry.singleReportTimer?.cancel()
+        qoeMetricsReportingSessionDataEntry.singleReportTimer = null
         val timer = qoeMetricsReportingSessionDataEntry.reportingTimer ?: return false
         timer.cancel()
         qoeMetricsReportingSessionDataEntry.reportingTimer = null
@@ -471,7 +602,11 @@ class QoeMetricsReportingController(
 
         var stopped = false
         for (qoeMetricsReportingSessionDataEntry in qoeMetricsReportingSessionData.values) {
-            if (cancelSingleReportingTimer(qoeMetricsReportingSessionDataEntry)) stopped = true
+            cancelSingleReportingTimer(qoeMetricsReportingSessionDataEntry)
+            if (qoeMetricsReportingSessionDataEntry.active) {
+                qoeMetricsReportingSessionDataEntry.active = false
+                stopped = true
+            }
         }
         if (stopped) {
             notifyClient(clientId, SessionHandlerEvents.MetricsReporting.METRICS_REPORTING_STOPPED)

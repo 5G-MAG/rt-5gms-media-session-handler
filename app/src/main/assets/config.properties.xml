@@ -1,4 +1,8 @@
 <!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd">
 <properties>
     <entry key="defaultServiceAccessInformationTimerInterval">10</entry>
+    <!-- How long, in milliseconds, the Media Session Handler waits for the network of a Data Network (dataNetworkName of a metrics
+         reporting configuration) before it reports the Data Network as not available. No clause gives a value; this is the default,
+         the operator of the device may change it. -->
+    <entry key="dataNetworkRequestTimeout">5000</entry>
 </properties>

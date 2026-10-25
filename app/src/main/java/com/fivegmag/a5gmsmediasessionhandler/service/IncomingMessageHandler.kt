@@ -15,12 +15,15 @@ import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmscommonlibrary.models.StreamingAccess
 import com.fivegmag.a5gmscommonlibrary.session.PlaybackRequest
+import com.fivegmag.a5gmsmediasessionhandler.controller.ClientKey
+import com.fivegmag.a5gmsmediasessionhandler.controller.ManifestMetricsConfiguration
 import com.fivegmag.a5gmsmediasessionhandler.controller.ConsumptionReportingController
 import com.fivegmag.a5gmsmediasessionhandler.controller.QoeMetricsReportingController
 import com.fivegmag.a5gmsmediasessionhandler.controller.NotificationChannelController
 import com.fivegmag.a5gmsmediasessionhandler.controller.ServiceAccessInformationController
 import com.fivegmag.a5gmsmediasessionhandler.controller.SessionController
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
+import com.fivegmag.a5gmsmediasessionhandler.models.ManifestParameters
 import com.fivegmag.a5gmsmediasessionhandler.models.GeneralSessionStatus
 import com.fivegmag.a5gmsmediasessionhandler.network.HeaderInterceptor
 import kotlinx.coroutines.CoroutineScope
@@ -72,6 +75,8 @@ class IncomingMessageHandler(
 
                     SessionHandlerMessageTypes.STATUS_MESSAGE -> handleStatusMessage(msg)
 
+                    SessionHandlerMessageTypes.MANIFEST_NOTIFICATION -> handleManifestNotification(msg)
+
                     SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE -> handleStartPlaybackByServiceListEntryMessage(
                         msg
                     )
@@ -117,7 +122,7 @@ class IncomingMessageHandler(
     }
 
     private fun handleUnregisterClient(msg: Message) {
-        val clientId = msg.sendingUid
+        val clientId = ClientKey.of(msg)
         resetClientSession(clientId)
         sessionController.unregisterClient(clientId)
     }
@@ -139,7 +144,7 @@ class IncomingMessageHandler(
     }
 
     private fun handleStatusMessage(msg: Message) {
-        val clientId = msg.sendingUid
+        val clientId = ClientKey.of(msg)
         val bundle: Bundle = msg.data as Bundle
 
         when (bundle.getString("playbackState", "")) {
@@ -151,6 +156,20 @@ class IncomingMessageHandler(
                 handlePlaybackStateReady(clientId)
             }
         }
+    }
+
+    // Step 10 of TS 26.501 V19.4.0 clause 5.2.3
+    private fun handleManifestNotification(msg: Message) {
+        val clientId = ClientKey.of(msg)
+        val bundle: Bundle = msg.data as Bundle
+        val parameters = ManifestParameters(
+            bundle.getBoolean(SessionHandlerBundleKeys.MPD_DYNAMIC),
+            if (bundle.containsKey(SessionHandlerBundleKeys.MPD_DURATION_MS)) bundle.getLong(SessionHandlerBundleKeys.MPD_DURATION_MS) else null,
+            if (bundle.containsKey(SessionHandlerBundleKeys.MPD_MIN_BUFFER_TIME_MS)) bundle.getLong(SessionHandlerBundleKeys.MPD_MIN_BUFFER_TIME_MS) else null,
+            bundle.getInt(SessionHandlerBundleKeys.MPD_PERIOD_COUNT)
+        )
+        clientsSessionData[clientId]?.manifestParameters = parameters
+        Log.i(TAG, "Manifest notification of client $clientId: $parameters")
     }
 
     private fun handlePlaybackStateEnded(clientId: Int) {
@@ -177,7 +196,7 @@ class IncomingMessageHandler(
 
     private fun handleStartPlaybackByServiceListEntryMessage(msg: Message) {
         val bundle: Bundle = msg.data
-        val clientId = msg.sendingUid
+        val clientId = ClientKey.of(msg)
         bundle.classLoader = ServiceListEntry::class.java.classLoader
         val serviceListEntry: ServiceListEntry = bundle.getParcelable("serviceListEntry")
             ?: throw java.lang.Exception("No valid ServiceListEntry found")
@@ -196,9 +215,11 @@ class IncomingMessageHandler(
     private suspend fun startMediaDeliverySession(
         serviceListEntry: ServiceListEntry,
         clientId: Int,
-        responseMessenger: Messenger?
+        responseMessenger: Messenger?,
+        accessToken: String? = null
     ): Boolean {
         resetClientSession(clientId)
+        clientsSessionData[clientId]?.accessToken = accessToken
         val mediaDeliverySessionId = clientsSessionData[clientId]?.mediaDeliverySessionId
         var serviceAccessInformation: com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation? = null
         var succeeded = false
@@ -213,21 +234,42 @@ class IncomingMessageHandler(
             }
             val finalEntryPoints = sessionController.getFinalEntryPoints(serviceListEntry, clientId)
 
-            if (serviceAccessInformation != null && finalEntryPoints != null && finalEntryPoints.size > 0) {
+            // clause 11.2.2.1: the session is ACTIVE when the Service Access Information was acquired and the Media Access Function was
+            // initialised if there is a Media Entry Point; without one there is nothing to hand over
+            if (serviceAccessInformation != null && (finalEntryPoints == null || finalEntryPoints.isEmpty())) {
+                serviceAccessInformation.notificationURL?.let {
+                    notificationChannelController.connect(clientId, it, serviceListEntry.externalServiceId)
+                }
+                succeeded = true
+            } else if (serviceAccessInformation != null && finalEntryPoints != null) {
                 mediaEntryPointUrl = finalEntryPoints[0].locator
+                // clause 4.9.2 of TS 26.512: a client metrics configuration in the manifest is used for the session
+                val manifestConfigurations = withContext(Dispatchers.IO) { fetchManifestMetricsConfigurations(finalEntryPoints[0]) }
+                if (manifestConfigurations.isNotEmpty()) {
+                    val converted = ArrayList(manifestConfigurations.mapIndexed { index, c -> c.toClientConfiguration(index) })
+                    serviceAccessInformation.clientMetricsReportingConfigurations = converted
+                    clientsSessionData[clientId]?.manifestMetricsConfigurations = converted
+                    manifestConfigurations.forEachIndexed { index, c ->
+                        clientsSessionData[clientId]?.manifestGzip?.put(ManifestMetricsConfiguration.ID_PREFIX + index, c.gzip)
+                    }
+                }
+                // sliceScope and dataNetworkName of the metrics configurations need what the platform tells about slices and data networks
+                prepareSlicesAndDataNetworks(clientId, serviceAccessInformation)
                 val consumptionRequest =
                     consumptionReportingController.getConsumptionRequest(
                         serviceAccessInformation
                     )
                 val qoeMetricsRequests =
-                    qoeMetricsReportingController.getQoeMetricsRequests(serviceAccessInformation)
+                    qoeMetricsReportingController.getQoeMetricsRequests(clientId, serviceAccessInformation, mediaEntryPointUrl)
                 val mediaStreamingSessionIdentifier = utils.generateUuidToHexBinary()
                 val playbackRequest =
                     PlaybackRequest(
                         finalEntryPoints,
                         consumptionRequest,
                         qoeMetricsRequests,
-                        mediaStreamingSessionIdentifier
+                        mediaStreamingSessionIdentifier,
+                        mediaDeliverySessionId,
+                        serviceListEntry.name.ifEmpty { null }
                     )
                 val responseBundle = Bundle()
                 responseBundle.putParcelable("playbackRequest", playbackRequest)
@@ -238,7 +280,8 @@ class IncomingMessageHandler(
                 )
                 qoeMetricsReportingController.initializeReporting(
                     clientId,
-                    serviceAccessInformation
+                    serviceAccessInformation,
+                    mediaEntryPointUrl
                 )
                 // clause 5.3.2.3: connect to the notification channel the Media AF nominates
                 serviceAccessInformation.notificationURL?.let {
@@ -278,10 +321,44 @@ class IncomingMessageHandler(
         return succeeded
     }
 
+    var context: android.content.Context? = null
+    private var dataNetworkRequestTimeout = 5000
+
+    private suspend fun prepareSlicesAndDataNetworks(clientId: Int, sai: com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation) {
+        val ctx = context ?: return
+        val configurations = sai.clientMetricsReportingConfigurations ?: return
+        val session = clientsSessionData[clientId] ?: return
+        if (configurations.any { !it.sliceScope.isNullOrEmpty() }) {
+            session.availableSlices = com.fivegmag.a5gmsmediasessionhandler.controller.PlatformNetworks.slices(ctx)
+        }
+        for (name in configurations.mapNotNull { it.dataNetworkName }.map { it.lowercase() }.distinct()) {
+            val selection = com.fivegmag.a5gmsmediasessionhandler.controller.DataNetwork.select(name)
+            if (selection is com.fivegmag.a5gmsmediasessionhandler.controller.DataNetwork.Selection.Capability) {
+                session.dataNetworks[name] = com.fivegmag.a5gmsmediasessionhandler.controller.PlatformNetworks.network(ctx, selection.capability, dataNetworkRequestTimeout)
+            }
+        }
+    }
+
+    /** The client metrics configurations that the manifest of a DASH Media Entry Point carries; none for another kind of entry point */
+    private fun fetchManifestMetricsConfigurations(entryPoint: EntryPoint): List<ManifestMetricsConfiguration> {
+        val locator = entryPoint.locator
+        val isDash = entryPoint.contentType == ContentTypes.DASH || locator.substringBefore('?').lowercase().endsWith(".mpd")
+        if (!isDash || !(locator.startsWith("http://") || locator.startsWith("https://"))) return emptyList()
+        return try {
+            val request = okhttp3.Request.Builder().url(locator).build()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) emptyList() else ManifestMetricsConfiguration.parse(response.body()?.string() ?: "")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "The manifest cannot be read for its metrics configuration: " + e.message)
+            emptyList()
+        }
+    }
+
     /** createMediaDeliverySession() (TS 26.510 V19.2.0 table 11.2.2.1-1); the reply carries the media delivery session identifier */
     private fun handleCreateMediaDeliverySession(msg: Message) {
         val bundle: Bundle = msg.data
-        val clientId = msg.sendingUid
+        val clientId = ClientKey.of(msg)
         val responseMessenger = msg.replyTo
         val serviceId = bundle.getString(SessionHandlerBundleKeys.SERVICE_ID)
             ?: throw java.lang.Exception("createMediaDeliverySession: serviceId is mandatory")
@@ -290,9 +367,10 @@ class IncomingMessageHandler(
         // the method gives only the URL of the Media Entry Point: its media type is taken from the name of the resource
         val entryPoints = if (entryPoint != null) arrayListOf(EntryPoint(entryPoint, contentTypeOfUrl(entryPoint), null)) else null
         val serviceListEntry = ServiceListEntry(serviceId, contentId ?: "", entryPoints)
+        val accessToken = bundle.getString(SessionHandlerBundleKeys.ACCESS_TOKEN)
 
         CoroutineScope(Dispatchers.Main).launch {
-            val succeeded = startMediaDeliverySession(serviceListEntry, clientId, responseMessenger)
+            val succeeded = startMediaDeliverySession(serviceListEntry, clientId, responseMessenger, accessToken)
             val reply = Bundle()
             reply.putString(
                 SessionHandlerBundleKeys.MEDIA_DELIVERY_SESSION_IDENTIFIER,
@@ -322,7 +400,7 @@ class IncomingMessageHandler(
 
     /** destroyMediaDeliverySession() (table 11.2.2.2-1): release the session and send SESSION_HANDLING_TERMINATED */
     private fun handleDestroyMediaDeliverySession(msg: Message) {
-        val clientId = msg.sendingUid
+        val clientId = ClientKey.of(msg)
         val identifier = msg.data.getString(SessionHandlerBundleKeys.MEDIA_DELIVERY_SESSION_IDENTIFIER)
         val session = clientsSessionData[clientId]
         if (session == null || session.generalStatus == null || session.mediaDeliverySessionId != identifier) {
@@ -345,7 +423,7 @@ class IncomingMessageHandler(
 
     /** The general status of table 11.2.3-1 for one media delivery session */
     private fun handleGetSessionStatus(msg: Message) {
-        val clientId = msg.sendingUid
+        val clientId = ClientKey.of(msg)
         val identifier = msg.data.getString(SessionHandlerBundleKeys.MEDIA_DELIVERY_SESSION_IDENTIFIER)
         val session = clientsSessionData[clientId]
         val reply = Bundle()
@@ -417,6 +495,12 @@ class IncomingMessageHandler(
         serviceAccessInformationController =
             ServiceAccessInformationController(clientsSessionData, retrofitBuilder)
         serviceAccessInformationController.initialize(configurationProperties)
+        configurationProperties.getProperty("dataNetworkRequestTimeout")?.toIntOrNull()?.let { dataNetworkRequestTimeout = it }
+        qoeMetricsReportingController.retrofitBuilderForNetwork = { network ->
+            Retrofit.Builder()
+                .addConverterFactory(GsonConverterFactory.create())
+                .client(okHttpClient.newBuilder().socketFactory(network.socketFactory).build())
+        }
         serviceAccessInformationController.onStreamingAccessUpdated = ::notifyStreamingAccessUpdated
         notificationChannelController = NotificationChannelController(
             serviceAccessInformationController::handleNotifiedServiceAccessInformation
