@@ -50,4 +50,51 @@ class ManifestMetricsConfigurationUnitTest {
         assertTrue(ManifestMetricsConfiguration.parse("<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\"/>").isEmpty())
         assertTrue(ManifestMetricsConfiguration.parse("not xml").isEmpty())
     }
+
+    private fun mpdWith(type: String, extra: String, ranges: String) = """<?xml version="1.0"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="$type" $extra minBufferTime="PT2S">
+  <Metrics metrics="BufferLevel(1000)">
+    $ranges
+    <Reporting schemeIdUri="urn:3GPP:ns:PSS:DASH:QM10">
+      <qm:ThreeGPQualityReporting xmlns:qm="urn:3GPP:ns:PSS:AdaptiveHTTPStreaming:2009:qm" reportingServer="http://m.example/q" reportingInterval="5"/>
+    </Reporting>
+  </Metrics>
+  <Period/>
+</MPD>"""
+
+    // ISO/IEC 23009-1:2026 table 42: Range@starttime and Range@duration of a static presentation are in Media Presentation time
+    @Test
+    fun aRangeOfAStaticPresentationIsTheWindowOfTheReporting() {
+        val c = ManifestMetricsConfiguration.parse(mpdWith("static", "mediaPresentationDuration=\"PT60S\"", "<Range starttime=\"PT10S\" duration=\"PT20S\"/>"))[0]
+        val converted = c.toClientConfiguration(0)
+        assertEquals(10L, converted.reportingStartOffset)
+        assertEquals(20L, converted.reportingDuration)
+    }
+
+    @Test
+    fun withoutARangeTheWholeContentIsCollected() {
+        val converted = ManifestMetricsConfiguration.parse(mpdWith("static", "", ""))[0].toClientConfiguration(0)
+        assertNull(converted.reportingStartOffset)
+        assertNull(converted.reportingDuration)
+    }
+
+    // for a dynamic presentation the start is a wall clock time: MPD@availabilityStartTime plus @starttime
+    @Test
+    fun theStartOfADynamicPresentationIsWallClockTime() {
+        val ast = "2026-10-25T12:00:00Z"
+        val c = ManifestMetricsConfiguration.parse(mpdWith("dynamic", "availabilityStartTime=\"$ast\"", "<Range starttime=\"PT15M\" duration=\"PT2M\"/>"))[0]
+        val now = java.time.Instant.parse("2026-10-25T12:14:00Z").toEpochMilli()
+        val converted = c.toClientConfiguration(0, now)
+        assertEquals(60L, converted.reportingStartOffset)
+        assertEquals(120L, converted.reportingDuration)
+        // after the start the window has begun
+        assertEquals(0L, c.toClientConfiguration(0, java.time.Instant.parse("2026-10-25T12:20:00Z").toEpochMilli()).reportingStartOffset)
+    }
+
+    @Test
+    fun severalRangesGiveOneWindowThatCoversThem() {
+        val c = ManifestMetricsConfiguration.parse(mpdWith("static", "", "<Range starttime=\"PT10S\" duration=\"PT5S\"/><Range starttime=\"PT30S\" duration=\"PT10S\"/>"))[0]
+        assertEquals(10L, c.toClientConfiguration(0).reportingStartOffset)
+        assertEquals(30L, c.toClientConfiguration(0).reportingDuration)
+    }
 }

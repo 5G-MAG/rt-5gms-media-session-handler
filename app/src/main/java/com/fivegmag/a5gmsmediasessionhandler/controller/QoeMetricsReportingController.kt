@@ -46,6 +46,22 @@ class QoeMetricsReportingController(
     /** Gives a Retrofit builder whose connections use the network of a Data Network (set by the owner of the HTTP client) */
     var retrofitBuilderForNetwork: ((android.net.Network) -> Retrofit.Builder)? = null
 
+    /** The cell of the UE (set by the owner); the locationFilter of a configuration is checked against it */
+    var currentCell: (() -> UeCell?)? = null
+
+    /** The position of the UE (set by the owner) for the geographic areas of a locationFilter */
+    var currentPosition: (() -> UePosition?)? = null
+
+    /** The civic address of a position (set by the owner) for the civic addresses of a locationFilter */
+    var civicAddressOf: ((UePosition?) -> UeCivic?)? = null
+
+    private fun located(configuration: ClientMetricsReportingConfiguration): Boolean {
+        if (configuration.locationFilter.isNullOrEmpty()) return true
+        val position = currentPosition?.invoke()
+        val civic = if (configuration.locationFilter!!.any { !it.civicAddresses.isNullOrEmpty() }) civicAddressOf?.invoke(position) else null
+        return LocationFilter.isLocated(configuration.locationFilter, currentCell?.invoke(), position, civic)
+    }
+
     private fun nowMs(): Long = System.nanoTime() / 1_000_000L
 
     private fun windowOf(configuration: ClientMetricsReportingConfiguration) =
@@ -87,6 +103,8 @@ class QoeMetricsReportingController(
                 clientMetricsReportingConfiguration.reportingInterval,
                 clientMetricsReportingConfiguration.metrics,
                 clientMetricsReportingConfiguration.metricsReportingConfigurationId,
+                clientMetricsReportingConfiguration.positiveCrossingThresholds,
+                clientMetricsReportingConfiguration.negativeCrossingThresholds,
             )
             qoeMetricsRequests.add(qoeMetricsRequest)
         }
@@ -119,6 +137,13 @@ class QoeMetricsReportingController(
 
         // a client that was not selected by samplePercentage sends no report (TS 26.510 V19.2.0 clause 5.3.5.2)
         if (!qoeMetricsReportingSessionDataEntry.selected) {
+            return
+        }
+
+        // metrics are collected and reported only where the locationFilter says (TS 26.510 V19.2.0 table 8.7.3.1-1)
+        if (!located(clientMetricsReportingConfiguration)) {
+            Log.d(TAG, "The UE is not in the locationFilter of [$metricsReportingConfigurationId], the report is not sent")
+            qoeMetricsReportingSessionDataEntry.reportRequested = false
             return
         }
 
@@ -228,6 +253,24 @@ class QoeMetricsReportingController(
         )
     }
 
+    /**
+     * A metric of a configuration crossed one of its thresholds: the report is requested at once, if the client reports for this
+     * configuration, the window of reportingStartOffset and reportingDuration is open and the UE is where the locationFilter says
+     * (TS 26.510 V19.2.0 clause 5.2.11.1).
+     */
+    fun handleMetricThresholdCrossed(msg: Message) {
+        val clientId = ClientKey.of(msg)
+        val bundle: Bundle = msg.data
+        val configurationId = bundle.getString(SessionHandlerBundleKeys.METRICS_REPORTING_CONFIGURATION_ID) ?: return
+        val configuration = clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation
+            ?.clientMetricsReportingConfigurations?.find { it.metricsReportingConfigurationId == configurationId } ?: return
+        val entry = getQoeMetricsReportingSessionDataEntry(clientId, configurationId) ?: return
+        if (!entry.selected || entry.api == null) return
+        if (!windowOf(configuration).contains(nowMs() - entry.sessionStartMs)) return
+        if (!located(configuration)) return
+        requestMetricsForSchemeFromClient(clientId, configuration)
+    }
+
     override fun initializeReportingTimer(clientId: Int, delay: Long?) {
         val clientMetricsReportingConfigurations: ArrayList<ClientMetricsReportingConfiguration> =
             clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientMetricsReportingConfigurations
@@ -291,7 +334,7 @@ class QoeMetricsReportingController(
         val timer = Timer()
         timer.schedule(object : TimerTask() {
             override fun run() {
-                requestMetricsForSchemeFromClient(clientId, clientMetricsReportingConfiguration)
+                if (located(clientMetricsReportingConfiguration)) requestMetricsForSchemeFromClient(clientId, clientMetricsReportingConfiguration)
             }
         }, window.startOffsetMs)
         entry.singleReportTimer = timer
@@ -340,6 +383,7 @@ class QoeMetricsReportingController(
                         return
                     }
                     if (!window.hasStarted(elapsed)) return
+                    if (!located(clientMetricsReportingConfiguration)) return
                     requestMetricsForSchemeFromClient(
                         clientId,
                         clientMetricsReportingConfiguration
@@ -455,6 +499,8 @@ class QoeMetricsReportingController(
         qoeMetricsRequest.metrics = clientMetricsReportingConfiguration.metrics
         qoeMetricsRequest.metricsReportingConfigurationId =
             clientMetricsReportingConfiguration.metricsReportingConfigurationId
+        qoeMetricsRequest.positiveCrossingThresholds = clientMetricsReportingConfiguration.positiveCrossingThresholds
+        qoeMetricsRequest.negativeCrossingThresholds = clientMetricsReportingConfiguration.negativeCrossingThresholds
         getQoeMetricsReportingSessionDataEntry(clientId, clientMetricsReportingConfiguration.metricsReportingConfigurationId)
             ?.reportRequested = true
         val bundle = Bundle()

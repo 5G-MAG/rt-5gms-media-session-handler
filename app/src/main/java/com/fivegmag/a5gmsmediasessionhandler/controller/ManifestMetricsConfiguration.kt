@@ -18,7 +18,13 @@ data class ManifestMetricsConfiguration(
     val samplePercentage: Float?,
     val reportingInterval: Long?,
     val gzip: Boolean,
-    val apn: String?
+    val apn: String?,
+    // the Range elements of the Metrics element (ISO/IEC 23009-1:2026 table 42): the window of the collection in seconds, relative to
+    // the start of the Media Presentation (static) or to MPD@availabilityStartTime (dynamic); null: from the start / until the end
+    val rangeStartSeconds: Long? = null,
+    val rangeDurationSeconds: Long? = null,
+    val dynamic: Boolean = false,
+    val availabilityStartMs: Long? = null
 ) {
     companion object {
         const val ID_PREFIX = "manifest-"
@@ -39,11 +45,15 @@ data class ManifestMetricsConfiguration(
                     }
                 }
                 val document = factory.newDocumentBuilder().parse(ByteArrayInputStream(mpd.toByteArray(Charsets.UTF_8)))
+                val root = document.documentElement
+                val dynamic = root.getAttribute("type") == "dynamic"
+                val availabilityStartMs = parseInstant(root.getAttribute("availabilityStartTime"))
                 val metricsElements = document.getElementsByTagNameNS("*", "Metrics")
                 for (i in 0 until metricsElements.length) {
                     val metrics = metricsElements.item(i) as? Element ?: continue
                     val keysAttribute = metrics.getAttribute("metrics")
                     if (keysAttribute.isBlank()) continue
+                    val range = rangeOf(metrics)
                     val reportings = metrics.getElementsByTagNameNS("*", "Reporting")
                     for (j in 0 until reportings.length) {
                         val reporting = reportings.item(j) as? Element ?: continue
@@ -69,7 +79,11 @@ data class ManifestMetricsConfiguration(
                                 info.getAttribute("samplePercentage").toFloatOrNull(),
                                 info.getAttribute("reportingInterval").toLongOrNull(),
                                 info.getAttribute("format") == "gzip",
-                                info.getAttribute("apn").ifBlank { null }
+                                info.getAttribute("apn").ifBlank { null },
+                                range?.first,
+                                range?.second,
+                                dynamic,
+                                availabilityStartMs
                             )
                         )
                     }
@@ -80,6 +94,46 @@ data class ManifestMetricsConfiguration(
             return result
         }
 
+        /** An xs:duration (PT1M30S) in whole seconds; null if absent or not one */
+        internal fun parseDurationSeconds(value: String): Long? =
+            if (value.isBlank()) null else try {
+                java.time.Duration.parse(value.trim()).seconds
+            } catch (_: Exception) {
+                null
+            }
+
+        private fun parseInstant(value: String): Long? =
+            if (value.isBlank()) null else try {
+                java.time.OffsetDateTime.parse(value.trim()).toInstant().toEpochMilli()
+            } catch (_: Exception) {
+                null
+            }
+
+        /**
+         * The window of the Range elements of a Metrics element (ISO/IEC 23009-1:2026 table 42): start and duration in seconds. With more
+         * than one Range element the window covers all of them (a reading: the MSH has one reporting window per configuration).
+         * A Range without @starttime starts at the beginning, one without @duration lasts to the end.
+         */
+        private fun rangeOf(metrics: Element): Pair<Long?, Long?>? {
+            val ranges = metrics.getElementsByTagNameNS("*", "Range")
+            if (ranges.length == 0) return null
+            var start: Long? = null
+            var end: Long? = null
+            var openEnd = false
+            var first = true
+            for (i in 0 until ranges.length) {
+                val r = ranges.item(i) as? Element ?: continue
+                // the semantics table writes @starttime, the XML syntax of 3GPP writes startTime: both are read
+                val s = parseDurationSeconds(r.getAttribute("starttime").ifBlank { r.getAttribute("startTime") }) ?: 0L
+                val d = parseDurationSeconds(r.getAttribute("duration"))
+                start = if (first) s else minOf(start!!, s)
+                if (d == null) openEnd = true else end = maxOf(end ?: Long.MIN_VALUE, s + d)
+                first = false
+            }
+            if (first) return null
+            return Pair(start, if (openEnd || end == null) null else end - start!!)
+        }
+
         private fun firstChild(parent: Element, localName: String): Element? {
             val nodes = parent.getElementsByTagNameNS("*", localName)
             return if (nodes.length > 0) nodes.item(0) as? Element else null
@@ -87,8 +141,13 @@ data class ManifestMetricsConfiguration(
     }
 
     /** The configuration in the form that the reporting controllers work with; the identifier tells that it comes from the manifest */
-    fun toClientConfiguration(index: Int): ClientMetricsReportingConfiguration =
-        ClientMetricsReportingConfiguration(
+    fun toClientConfiguration(index: Int, nowMs: Long = System.currentTimeMillis()): ClientMetricsReportingConfiguration {
+        // for a dynamic presentation the start is a wall clock time (@starttime added to MPD@availabilityStartTime); the window of the
+        // reporting is counted from the start of the media delivery session, which is now
+        val startOffset = if (dynamic && availabilityStartMs != null && rangeStartSeconds != null) {
+            maxOf(0L, (availabilityStartMs + rangeStartSeconds * 1000L - nowMs) / 1000L)
+        } else rangeStartSeconds
+        return ClientMetricsReportingConfiguration(
             metricsReportingConfigurationId = ID_PREFIX + index,
             serverAddresses = arrayListOf(reportingServer),
             scheme = QM10,
@@ -97,6 +156,9 @@ data class ManifestMetricsConfiguration(
             samplePercentage = samplePercentage,
             urlFilters = null,
             samplingPeriod = samplingPeriod,
-            metrics = ArrayList(metricsKeys.map { "$QM10#$it" })
+            metrics = ArrayList(metricsKeys.map { "$QM10#$it" }),
+            reportingStartOffset = startOffset,
+            reportingDuration = rangeDurationSeconds
         )
+    }
 }

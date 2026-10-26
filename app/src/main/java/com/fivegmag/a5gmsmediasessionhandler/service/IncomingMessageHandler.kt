@@ -16,6 +16,8 @@ import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmscommonlibrary.models.StreamingAccess
 import com.fivegmag.a5gmscommonlibrary.session.PlaybackRequest
 import com.fivegmag.a5gmsmediasessionhandler.controller.ClientKey
+import com.fivegmag.a5gmsmediasessionhandler.controller.CivicLookup
+import com.fivegmag.a5gmsmediasessionhandler.controller.LocationFilter
 import com.fivegmag.a5gmsmediasessionhandler.controller.ManifestMetricsConfiguration
 import com.fivegmag.a5gmsmediasessionhandler.controller.ConsumptionReportingController
 import com.fivegmag.a5gmsmediasessionhandler.controller.QoeMetricsReportingController
@@ -76,6 +78,8 @@ class IncomingMessageHandler(
                     SessionHandlerMessageTypes.STATUS_MESSAGE -> handleStatusMessage(msg)
 
                     SessionHandlerMessageTypes.MANIFEST_NOTIFICATION -> handleManifestNotification(msg)
+
+                    SessionHandlerMessageTypes.METRIC_THRESHOLD_CROSSED -> qoeMetricsReportingController.handleMetricThresholdCrossed(msg)
 
                     SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE -> handleStartPlaybackByServiceListEntryMessage(
                         msg
@@ -496,6 +500,11 @@ class IncomingMessageHandler(
             ServiceAccessInformationController(clientsSessionData, retrofitBuilder)
         serviceAccessInformationController.initialize(configurationProperties)
         configurationProperties.getProperty("dataNetworkRequestTimeout")?.toIntOrNull()?.let { dataNetworkRequestTimeout = it }
+        qoeMetricsReportingController.currentCell = { context?.let { LocationFilter.currentCell(it) } }
+        val locationMaxAgeMs = (configurationProperties.getProperty("locationMaxAgeSeconds")?.toLongOrNull() ?: 300L) * 1000L
+        qoeMetricsReportingController.currentPosition = { context?.let { LocationFilter.currentPosition(it, locationMaxAgeMs) } }
+        val civicResolver = context?.let { CivicLookup.Resolver(it) }
+        qoeMetricsReportingController.civicAddressOf = { position -> civicResolver?.addressOf(position) }
         qoeMetricsReportingController.retrofitBuilderForNetwork = { network ->
             Retrofit.Builder()
                 .addConverterFactory(GsonConverterFactory.create())

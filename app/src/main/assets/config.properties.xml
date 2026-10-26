@@ -5,4 +5,7 @@
          reporting configuration) before it reports the Data Network as not available. No clause gives a value; this is the default,
          the operator of the device may change it. -->
     <entry key="dataNetworkRequestTimeout">5000</entry>
+    <!-- How old, in seconds, the last known location of the UE may be when the geographic areas of a locationFilter (TS 26.510 table 8.7.3.1-1)
+         are checked. No clause gives a value; this is the default, the operator of the device may change it. -->
+    <entry key="locationMaxAgeSeconds">300</entry>
 </properties>
