@@ -8,4 +8,25 @@
     <!-- How old, in seconds, the last known location of the UE may be when the geographic areas of a locationFilter (TS 26.510 table 8.7.3.1-1)
          are checked. No clause gives a value; this is the default, the operator of the device may change it. -->
     <entry key="locationMaxAgeSeconds">300</entry>
+    <!-- The client credentials grant (RFC 6749 clause 4.4) with which the Media Session Handler obtains the access token for the Media AF
+         at M5 (TS 26.510 clause 7.4.3), when the application gave none to createMediaDeliverySession, and renews it when the Media AF
+         answers 401 invalid_token. Empty token URL or client identifier: no token is obtained. -->
+    <entry key="oauthTokenUrl"></entry>
+    <entry key="oauthClientId"></entry>
+    <entry key="oauthClientSecret"></entry>
+    <entry key="oauthScope"></entry>
+    <!-- The credentials of the Media Session Handler at the MQTT broker of the notification channel (TS 26.510 clause 10.2.1: "The MQTT broker
+         shall use appropriate client authentication mechanisms, such as a token-based authentication mechanism (JWT) [51] to secure access
+         to the notification channel."). The password is the token when the broker uses one. Empty: the client connects without credentials. -->
+    <entry key="mqttUsername"></entry>
+    <entry key="mqttPassword"></entry>
+    <!-- The conformance profiles (URIs, comma separated) of the Media Entry Points that this device plays (TS 26.512 clause 4.7.2.1). An entry
+         point that declares profiles, none of them listed here, is not offered to the Media Stream Handler. Empty: all profiles. -->
+    <entry key="supportedProfiles"></entry>
+    <!-- Reports that the Media AF answers with 503 are stored and sent again (TS 26.510 clauses 5.3.5.2 and 5.3.6.2: "should store outstanding
+         ... reports and reattempt submission when the endpoint later becomes available"). reportRetrySeconds: the wait when the answer has no
+         Retry-After header; maxStoredReports: how many are kept per reporting procedure, the oldest are dropped. No clause gives either
+         value; these are defaults, the operator of the device may change them. -->
+    <entry key="reportRetrySeconds">30</entry>
+    <entry key="maxStoredReports">10</entry>
 </properties>

@@ -73,6 +73,8 @@ data class QoeMetricsReportingSessionDataEntry(
     // a report was requested from the Media Stream Handler and has not arrived; the window is checked when it was requested
     var reportRequested: Boolean = false,
     var singleReportTimer: Timer? = null,
+    // reports that the Media AF answered with 503, for a later attempt (clause 5.3.5.2)
+    val pending: com.fivegmag.a5gmsmediasessionhandler.controller.PendingReports = com.fivegmag.a5gmsmediasessionhandler.controller.PendingReports(10),
 )
 
 data class ConsumptionReportingSessionData(
@@ -85,6 +87,8 @@ data class ConsumptionReportingSessionData(
     var selected: Boolean = false,
     // consumption reporting is active for this media delivery session (CONSUMPTION_REPORTING_ACTIVATED was sent and STOPPED was not)
     var active: Boolean = false,
+    // reports that the Media AF answered with 503, for a later attempt (clause 5.3.6.2)
+    val pending: com.fivegmag.a5gmsmediasessionhandler.controller.PendingReports = com.fivegmag.a5gmsmediasessionhandler.controller.PendingReports(10),
 )
 
 data class ServiceAccessInformationSessionData(

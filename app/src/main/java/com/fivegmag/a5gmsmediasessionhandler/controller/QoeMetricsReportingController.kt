@@ -164,8 +164,19 @@ class QoeMetricsReportingController(
             startSingleReportingTimer(clientId, null, clientMetricsReportingConfiguration)
         }
 
+        postMetricsReport(clientId, clientMetricsReportingConfiguration, playbackMetricsResponse?.metricsString)
+    }
+
+    internal fun postMetricsReport(
+        clientId: Int,
+        clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration,
+        metricsString: String?
+    ) {
+        val clientSessionData = clientsSessionData[clientId] ?: return
+        val metricsReportingConfigurationId: String? = clientMetricsReportingConfiguration.metricsReportingConfigurationId
+        val qoeMetricsReportingSessionDataEntry =
+            clientSessionData.qoeMetricsReportingSessionData[metricsReportingConfigurationId] ?: return
         val api = qoeMetricsReportingSessionDataEntry.api ?: return
-        val metricsString = playbackMetricsResponse?.metricsString
         val mediaType = MediaType.parse(ContentTypes.QOE_REPORT_XML)
         val requestBody: RequestBody? = metricsString?.let { RequestBody.create(mediaType, it) }
         val provisioningSessionId =
@@ -199,6 +210,9 @@ class QoeMetricsReportingController(
                     notifyClient(clientId, SessionHandlerEvents.MetricsReporting.NEW_METRICS_REPORT)
                     clientSessionData.lastMetricsConfigurationId = metricsReportingConfigurationId
                 } else {
+                    if (response.code() == 503 && metricsString != null) {
+                        keepForLater(clientId, clientMetricsReportingConfiguration, qoeMetricsReportingSessionDataEntry, metricsString, response.headers()["Retry-After"])
+                    }
                     notifyError(clientId, provisioningSessionId, metricsReportingConfigurationId, qoeMetricsReportingSessionDataEntry, response.code(), response.message())
                 }
             }
@@ -208,7 +222,28 @@ class QoeMetricsReportingController(
                 notifyError(clientId, provisioningSessionId, metricsReportingConfigurationId, qoeMetricsReportingSessionDataEntry, 0, t.message)
             }
         })
+    }
 
+    /** The Media AF is not available (503): the report is stored and sent again later (TS 26.510 V19.2.0 clause 5.3.5.2) */
+    private fun keepForLater(
+        clientId: Int,
+        configuration: ClientMetricsReportingConfiguration,
+        entry: QoeMetricsReportingSessionDataEntry,
+        report: String,
+        retryAfter: String?
+    ) {
+        val pending = entry.pending
+        pending.limit = maxStoredReports
+        pending.store(report)
+        if (pending.retryTimer != null) return
+        val timer = Timer()
+        pending.retryTimer = timer
+        timer.schedule(object : TimerTask() {
+            override fun run() {
+                pending.retryTimer = null
+                pending.takeAll().forEach { postMetricsReport(clientId, configuration, it) }
+            }
+        }, PendingReports.retryDelaySeconds(retryAfter, retryDefaultSeconds) * 1000)
     }
 
     /** ERROR_METRICS_REPORTING (table 11.6.2-3); the HTTP response code is 0 when there was no response */
@@ -277,21 +312,29 @@ class QoeMetricsReportingController(
                 ?: return
 
         for (clientMetricsReportingConfiguration in clientMetricsReportingConfigurations) {
-            // the draw of samplePercentage is made once per configuration and media delivery session (clause 5.3.5.2)
-            val entry = getQoeMetricsReportingSessionDataEntry(
-                clientId,
-                clientMetricsReportingConfiguration.metricsReportingConfigurationId
-            ) ?: continue
-            entry.sessionStartMs = nowMs()
-            entry.selected = shouldReportAccordingToSamplePercentage(clientMetricsReportingConfiguration.samplePercentage)
-            entry.drawnForSamplePercentage = clientMetricsReportingConfiguration.samplePercentage
-            if (entry.selected) activate(clientId, entry)
-            initializeReportingTimerForConfiguration(
-                clientId,
-                delay,
-                clientMetricsReportingConfiguration
-            )
+            activateConfiguration(clientId, delay, clientMetricsReportingConfiguration)
         }
+    }
+
+    private fun activateConfiguration(
+        clientId: Int,
+        delay: Long?,
+        clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration
+    ) {
+        // the draw of samplePercentage is made once per configuration and media delivery session (clause 5.3.5.2)
+        val entry = getQoeMetricsReportingSessionDataEntry(
+            clientId,
+            clientMetricsReportingConfiguration.metricsReportingConfigurationId
+        ) ?: return
+        entry.sessionStartMs = nowMs()
+        entry.selected = shouldReportAccordingToSamplePercentage(clientMetricsReportingConfiguration.samplePercentage)
+        entry.drawnForSamplePercentage = clientMetricsReportingConfiguration.samplePercentage
+        if (entry.selected) activate(clientId, entry)
+        initializeReportingTimerForConfiguration(
+            clientId,
+            delay,
+            clientMetricsReportingConfiguration
+        )
     }
 
     private fun initializeReportingTimerForConfiguration(
@@ -522,22 +565,35 @@ class QoeMetricsReportingController(
         val updatedClientMetricsReportingConfigurations =
             serviceAccessInformationUpdatedEvent.updatedServiceAccessInformation?.clientMetricsReportingConfigurations
 
-        if (previousClientMetricsReportingConfigurations == null || updatedClientMetricsReportingConfigurations == null) {
+        // the first Service Access Information of the session is handled when the session starts
+        if (serviceAccessInformationUpdatedEvent.previousServiceAccessInformation == null) {
+            return
+        }
+        if (previousClientMetricsReportingConfigurations == null && updatedClientMetricsReportingConfigurations == null) {
             return
         }
 
         val clientId = serviceAccessInformationUpdatedEvent.clientId
+        // a Service Access Information without configurations has none of them (TS 26.510 V19.2.0 table 9.2.3.1-1)
+        val updatedConfigurations = updatedClientMetricsReportingConfigurations ?: ArrayList()
 
         // No more reporting configurations. Reset the existing ones
-        handleNoReportingConfigurations(clientId, updatedClientMetricsReportingConfigurations)
+        handleNoReportingConfigurations(clientId, updatedConfigurations)
 
         // Check if any of the active metricsReportingConfigurationIds has been removed. If so cancel reporting and remove from list.
-        handleConfigurationRemoval(clientId, updatedClientMetricsReportingConfigurations)
+        handleConfigurationRemoval(clientId, updatedConfigurations)
+
+        // A configuration that has been added is activated (clause 5.3.5.1)
+        handleConfigurationAddition(
+            clientId,
+            updatedConfigurations,
+            serviceAccessInformationUpdatedEvent.updatedServiceAccessInformation?.streamingAccess?.entryPoints?.firstOrNull()?.locator
+        )
 
         // Handle updates to existing configurations
         handleConfigurationUpdate(
             clientId,
-            updatedClientMetricsReportingConfigurations
+            updatedConfigurations
         )
 
     }
@@ -548,6 +604,29 @@ class QoeMetricsReportingController(
     ) {
         if (clientMetricsReportingConfigurations.isEmpty()) {
             resetClientSession(clientId)
+        }
+    }
+
+    /**
+     * A configuration without an entry in the session data is new: it gets one, and for a session that is already running it is
+     * activated at once (draw, window and timers); a session that has not started reporting activates it with the others.
+     */
+    private fun handleConfigurationAddition(
+        clientId: Int,
+        clientMetricsReportingConfigurations: ArrayList<ClientMetricsReportingConfiguration>,
+        mediaEntryPointUrl: String?
+    ) {
+        val session = clientsSessionData[clientId] ?: return
+        for (configuration in clientMetricsReportingConfigurations) {
+            if (session.qoeMetricsReportingSessionData.containsKey(configuration.metricsReportingConfigurationId) ||
+                !appliesTo(clientId, configuration, mediaEntryPointUrl)
+            ) {
+                continue
+            }
+            session.qoeMetricsReportingSessionData[configuration.metricsReportingConfigurationId] = QoeMetricsReportingSessionDataEntry()
+            if (session.initializedSession) {
+                activateConfiguration(clientId, null, configuration)
+            }
         }
     }
 
@@ -571,6 +650,7 @@ class QoeMetricsReportingController(
     }
 
     private fun resetSingleQoeMetricsReportingSession(qoeMetricsReportingSessionDataEntry: QoeMetricsReportingSessionDataEntry) {
+        qoeMetricsReportingSessionDataEntry.pending.cancel()
         qoeMetricsReportingSessionDataEntry.reportingTimer?.cancel()
         qoeMetricsReportingSessionDataEntry.singleReportTimer?.cancel()
         qoeMetricsReportingSessionDataEntry.singleReportTimer = null
@@ -633,6 +713,7 @@ class QoeMetricsReportingController(
 
     override fun resetClientSession(clientId: Int) {
         stopReportingTimer(clientId)
+        clientsSessionData[clientId]?.qoeMetricsReportingSessionData?.values?.forEach { it.pending.cancel() }
         clientsSessionData[clientId]?.qoeMetricsReportingSessionData?.clear()
     }
 

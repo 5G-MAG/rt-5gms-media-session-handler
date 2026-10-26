@@ -11,10 +11,11 @@ import java.util.concurrent.CopyOnWriteArrayList
  */
 class MediaAfDouble : AutoCloseable {
     data class Request(val method: String, val path: String, val authorization: String?, val contentType: String?, val body: String)
-    data class Response(val code: Int, val body: String? = null, val location: String? = null)
+    data class Response(val code: Int, val body: String? = null, val location: String? = null, val wwwAuthenticate: String? = null, val retryAfter: String? = null)
 
     val requests = CopyOnWriteArrayList<Request>()
     private val responses = HashMap<String, Response>()
+    private val queued = HashMap<String, ArrayDeque<Response>>()
     private val server: HttpServer = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
 
     init {
@@ -29,14 +30,22 @@ class MediaAfDouble : AutoCloseable {
         responses["$method /3gpp-maf-session-handling/v1/$pathSuffix"] = response
     }
 
+    /** Answers the next request of the method and path with this response, before the one that answer() set */
+    fun answerOnce(method: String, pathSuffix: String, response: Response) {
+        queued.getOrPut("$method /3gpp-maf-session-handling/v1/$pathSuffix") { ArrayDeque() }.addLast(response)
+    }
+
     private fun handle(exchange: HttpExchange) {
         val body = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
         val path = exchange.requestURI.path
         requests.add(
             Request(exchange.requestMethod, path, exchange.requestHeaders.getFirst("Authorization"), exchange.requestHeaders.getFirst("Content-Type"), body)
         )
-        val response = responses["${exchange.requestMethod} $path"] ?: Response(404)
+        val key = "${exchange.requestMethod} $path"
+        val response = synchronized(queued) { queued[key]?.removeFirstOrNull() } ?: responses[key] ?: Response(404)
         response.location?.let { exchange.responseHeaders.add("Location", it) }
+        response.wwwAuthenticate?.let { exchange.responseHeaders.add("WWW-Authenticate", it) }
+        response.retryAfter?.let { exchange.responseHeaders.add("Retry-After", it) }
         val bytes = (response.body ?: "").toByteArray()
         if (response.body != null) exchange.responseHeaders.add("Content-Type", "application/json")
         exchange.sendResponseHeaders(response.code, if (bytes.isEmpty() || response.code == 204) -1 else bytes.size.toLong())

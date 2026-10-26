@@ -16,6 +16,10 @@ abstract class ReportingController(
 
     val utils = Utils()
 
+    /** How many reports that the Media AF answered with 503 are kept, and how long to wait without a Retry-After header (config.properties.xml) */
+    var maxStoredReports = 10
+    var retryDefaultSeconds = 30L
+
     protected abstract val outgoingMessageHandler: OutgoingMessageHandler
 
     /**

@@ -12,6 +12,7 @@ import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import com.fivegmag.a5gmsmediasessionhandler.models.bearer
 import com.fivegmag.a5gmsmediasessionhandler.models.ServiceAccessInformationSessionData
 import com.fivegmag.a5gmsmediasessionhandler.network.IServiceAccessInformationApi
+import com.fivegmag.a5gmsmediasessionhandler.network.OAuthClientCredentials
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Headers
 import org.greenrobot.eventbus.EventBus
@@ -43,14 +44,55 @@ class ServiceAccessInformationController(
 
     /** Called when an update of the Service Access Information changes the streaming access (TS 26.510 V19.2.0 table 11.2.3-2) */
     var onStreamingAccessUpdated: ((Int, StreamingAccess) -> Unit)? = null
+    /** Called when the Media AF refuses the Media Session Handler's access token for want of scope (403 insufficient_scope), with the client identifier */
+    var onAccessDenied: ((Int) -> Unit)? = null
     private var defaultServiceAccessInformationTimerInterval: Long = 0
+
+    /** The client credentials of the Media Session Handler (TS 26.510 V19.2.0 clause 7.4.3); null when none are configured */
+    var oAuthClient: OAuthClientCredentials? = null
 
     fun initialize(configurationProperties: Properties) {
         defaultServiceAccessInformationTimerInterval =
             configurationProperties.getProperty("defaultServiceAccessInformationTimerInterval")
                 .toLong()
-
+        val tokenUrl = configurationProperties.getProperty("oauthTokenUrl")?.trim()
+        val clientId = configurationProperties.getProperty("oauthClientId")?.trim()
+        if (!tokenUrl.isNullOrEmpty() && !clientId.isNullOrEmpty()) {
+            oAuthClient = OAuthClientCredentials(
+                tokenUrl,
+                clientId,
+                configurationProperties.getProperty("oauthClientSecret") ?: "",
+                configurationProperties.getProperty("oauthScope")?.trim()
+            )
+        }
     }
+
+    /** The access token that the application gave stays the first choice; only without one is a token obtained with the client credentials */
+    private fun ensureAccessToken(clientId: Int) {
+        val session = clientsSessionData[clientId] ?: return
+        val client = oAuthClient ?: return
+        if (session.accessToken != null) return
+        acquireAccessToken(clientId, client)
+    }
+
+    private fun acquireAccessToken(clientId: Int, client: OAuthClientCredentials): Boolean {
+        return try {
+            clientsSessionData[clientId]?.accessToken = client.requestToken().value
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "No access token could be obtained: ${e.message}")
+            false
+        }
+    }
+
+    /** RFC 6750 clause 3.1: 401 with error="invalid_token" in WWW-Authenticate, that a new token can answer when client credentials exist */
+    private fun canRenewAfter(response: Response<*>): Boolean =
+        oAuthClient != null && response.code() == 401 &&
+            response.headers()["WWW-Authenticate"]?.contains("invalid_token") == true
+
+    /** 403 with error="insufficient_scope" in WWW-Authenticate (RFC 6750 clause 3.1) */
+    private fun isInsufficientScope(response: Response<*>): Boolean =
+        response.code() == 403 && response.headers()["WWW-Authenticate"]?.contains("insufficient_scope") == true
 
     fun setM5Endpoint(msg: Message) {
         val bundle: Bundle = msg.data
@@ -93,6 +135,22 @@ class ServiceAccessInformationController(
         serviceListEntry: ServiceListEntry?,
         clientId: Int
     ): ServiceAccessInformation? {
+        ensureAccessToken(clientId)
+        val tokenRejected = BooleanArray(1)
+        val result = requestServiceAccessInformation(serviceListEntry, clientId, tokenRejected)
+        // the token is no longer valid: one new token (clause 7.4.3 of TS 26.510), one retry
+        val client = oAuthClient
+        if (tokenRejected[0] && client != null && acquireAccessToken(clientId, client)) {
+            return requestServiceAccessInformation(serviceListEntry, clientId, BooleanArray(1))
+        }
+        return result
+    }
+
+    private suspend fun requestServiceAccessInformation(
+        serviceListEntry: ServiceListEntry?,
+        clientId: Int,
+        tokenRejected: BooleanArray
+    ): ServiceAccessInformation? {
 
         val provisioningSessionId: String = serviceListEntry!!.externalServiceId
         val call: Call<ServiceAccessInformation>? =
@@ -109,13 +167,17 @@ class ServiceAccessInformationController(
                     call: Call<ServiceAccessInformation?>,
                     response: Response<ServiceAccessInformation?>
                 ) {
+                    if (tokenRejected[0].not() && canRenewAfter(response)) {
+                        tokenRejected[0] = true
+                        continuation.resume(null)
+                        return
+                    }
 
                     processServiceAccessInformationResponse(
                         response,
                         clientId,
                         provisioningSessionId
                     )
-
 
                     continuation.resume(clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation)
                 }
@@ -144,6 +206,7 @@ class ServiceAccessInformationController(
         provisioningSessionId: String
     ) {
         val headers = response.headers()
+        if (isInsufficientScope(response)) onAccessDenied?.invoke(clientId)
         val previousServiceAccessInformation: ServiceAccessInformation? =
             clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation
 
@@ -209,7 +272,8 @@ class ServiceAccessInformationController(
     private fun startServiceAccessInformationUpdateTimer(
         headers: Headers,
         sendingUid: Int,
-        provisioningSessionId: String
+        provisioningSessionId: String,
+        immediately: Boolean = false
     ) {
         // Get MaxAge. If an age header is present, that value shall be subtracted from the value defined in max-age.
         var periodByMaxAgeHeader = getMaxAge(headers)
@@ -249,6 +313,16 @@ class ServiceAccessInformationController(
                             call: Call<ServiceAccessInformation?>,
                             response: Response<ServiceAccessInformation?>
                         ) {
+                            val client = oAuthClient
+                            if (client != null && canRenewAfter(response)) {
+                                // the token has expired: a new one, then the check again at once (the thread keeps the network off the callback)
+                                Thread {
+                                    if (acquireAccessToken(sendingUid, client)) {
+                                        startServiceAccessInformationUpdateTimer(response.headers(), sendingUid, provisioningSessionId, true)
+                                    }
+                                }.start()
+                                return
+                            }
 
                             processServiceAccessInformationResponse(
                                 response,
@@ -266,7 +340,7 @@ class ServiceAccessInformationController(
                     })
                 }
             },
-            periodTimerInSeconds * 1000
+            if (immediately) 0 else periodTimerInSeconds * 1000
         )
     }
 

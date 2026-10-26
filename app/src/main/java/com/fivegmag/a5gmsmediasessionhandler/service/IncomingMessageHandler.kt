@@ -471,6 +471,21 @@ class IncomingMessageHandler(
     }
 
     /** STREAMING_ACCESS_UPDATED (table 11.2.3-2): the update of the Service Access Information changed the streaming access */
+    /** ERROR_SESSION_HANDLING (table 11.2.3-3) for a media delivery session whose access the Media AF refuses */
+    private fun notifySessionHandlingError(clientId: Int) {
+        val session = clientsSessionData[clientId] ?: return
+        val notification = Bundle()
+        notification.putString(
+            SessionHandlerBundleKeys.MEDIA_DELIVERY_SESSION_IDENTIFIER,
+            session.mediaDeliverySessionId
+        )
+        outgoingMessageHandler.sendNotification(
+            SessionHandlerEvents.Error.ERROR_SESSION_HANDLING,
+            notification,
+            session.messenger
+        )
+    }
+
     private fun notifyStreamingAccessUpdated(clientId: Int, streamingAccess: StreamingAccess) {
         val session = clientsSessionData[clientId] ?: return
         if (session.generalStatus == null) return
@@ -511,6 +526,8 @@ class IncomingMessageHandler(
                 outgoingMessageHandler
             )
         consumptionReportingController.initialize()
+        configurationProperties.getProperty("maxStoredReports")?.toIntOrNull()?.let { consumptionReportingController.maxStoredReports = it }
+        configurationProperties.getProperty("reportRetrySeconds")?.toLongOrNull()?.let { consumptionReportingController.retryDefaultSeconds = it }
         qoeMetricsReportingController =
             QoeMetricsReportingController(
                 clientsSessionData,
@@ -518,10 +535,14 @@ class IncomingMessageHandler(
                 outgoingMessageHandler
             )
         qoeMetricsReportingController.initialize()
+        configurationProperties.getProperty("maxStoredReports")?.toIntOrNull()?.let { qoeMetricsReportingController.maxStoredReports = it }
+        configurationProperties.getProperty("reportRetrySeconds")?.toLongOrNull()?.let { qoeMetricsReportingController.retryDefaultSeconds = it }
         sessionController =
             SessionController(
                 clientsSessionData
             )
+        sessionController.supportedProfiles = (configurationProperties.getProperty("supportedProfiles") ?: "")
+            .split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
         serviceAccessInformationController =
             ServiceAccessInformationController(clientsSessionData, retrofitBuilder)
         serviceAccessInformationController.initialize(configurationProperties)
@@ -542,11 +563,13 @@ class IncomingMessageHandler(
         networkAssistanceController = NetworkAssistanceController(clientsSessionData, retrofitBuilder, outgoingMessageHandler, dynamicPolicyController)
         networkAssistanceController.endpoints = dynamicPolicyController.endpoints
         serviceAccessInformationController.onStreamingAccessUpdated = ::notifyStreamingAccessUpdated
+        serviceAccessInformationController.onAccessDenied = ::notifySessionHandlingError
         notificationChannelController = NotificationChannelController(
             serviceAccessInformationController::handleNotifiedServiceAccessInformation,
             dynamicPolicyController::handleNotification,
             { clientId, session, _ -> networkAssistanceController.handleNotification(clientId, session) }
         )
+        notificationChannelController.initialize(configurationProperties)
         dynamicPolicyController.subscribeTopic = notificationChannelController::subscribe
         dynamicPolicyController.unsubscribeTopic = notificationChannelController::unsubscribe
         networkAssistanceController.subscribeTopic = notificationChannelController::subscribe

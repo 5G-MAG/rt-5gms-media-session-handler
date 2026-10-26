@@ -35,6 +35,10 @@ android {
     kotlin {
         jvmToolchain(17)
     }
+    testOptions {
+        // the unit tests build objects of the platform (Messenger, Log) that do nothing there
+        unitTests.returnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -45,6 +49,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-oss-licenses:17.5.1")
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'io.mockk:mockk:1.13.13'
     androidTestImplementation 'androidx.test.ext:junit:1.3.0'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.7.0'
 

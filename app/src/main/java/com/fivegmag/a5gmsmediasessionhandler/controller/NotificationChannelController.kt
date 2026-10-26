@@ -39,6 +39,25 @@ class NotificationChannelController(
     private val subTopics = java.util.concurrent.ConcurrentHashMap<Int, MutableSet<String>>()
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    // the credentials of the Media Session Handler at the broker; the password is a token (JWT) when the broker uses token-based authentication
+    private var username: String? = null
+    private var password: String? = null
+
+    fun initialize(configurationProperties: java.util.Properties) {
+        username = configurationProperties.getProperty("mqttUsername")?.trim()?.ifEmpty { null }
+        password = configurationProperties.getProperty("mqttPassword")?.ifEmpty { null }
+    }
+
+    /** The connection options of the channel: automatic reconnection and, when configured, the user name and password (clause 10.2.1) */
+    fun connectionOptions(): MqttConnectionOptions {
+        val options = MqttConnectionOptions()
+        options.isAutomaticReconnect = true
+        options.isCleanStart = true
+        username?.let { options.userName = it }
+        password?.let { options.password = it.toByteArray(Charsets.UTF_8) }
+        return options
+    }
+
     fun connect(clientId: Int, notificationUrl: String, externalServiceId: String) {
         disconnect(clientId)
         externalServiceIds[clientId] = externalServiceId
@@ -78,10 +97,7 @@ class NotificationChannelController(
                 override fun deliveryComplete(token: IMqttToken?) {}
                 override fun authPacketArrived(reasonCode: Int, properties: MqttProperties?) {}
             })
-            val options = MqttConnectionOptions()
-            options.isAutomaticReconnect = true
-            options.isCleanStart = true
-            client.connect(options)
+            client.connect(connectionOptions())
             clients[clientId] = client
         } catch (e: MqttException) {
             Log.w(TAG, "Cannot connect to the notification channel [$notificationUrl]: " + e.message)
