@@ -3,6 +3,8 @@ package com.fivegmag.a5gmsmediasessionhandler.controller
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.fivegmag.a5gmscommonlibrary.models.DynamicPolicy
+import com.fivegmag.a5gmscommonlibrary.models.NetworkAssistanceSession
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmsmediasessionhandler.service.NotificationMessageParser
 import org.eclipse.paho.mqttv5.client.IMqttToken
@@ -19,25 +21,35 @@ import org.eclipse.paho.mqttv5.common.packet.MqttProperties
  * The client of the resource update notification channel (TS 26.510 V19.2.0 clause 10.2): if the Service Access Information has a
  * notificationURL, the Media Session Handler connects to the MQTT channel and subscribes to the root topic, which is the external
  * service identifier (clause 5.3.2.3). The Service Access Information update notifications published there are handed to the callback.
+ * The sub-topic {externalServiceId}/{resourceId} of a Dynamic Policy Instance or a Network Assistance Session is subscribed to when the
+ * resource is created and left when it is destroyed (clauses 5.3.3.2, 5.3.3.5, 5.3.4.2, 5.3.4.7); the notifications of those resources go to
+ * their callbacks with the reason of the notification.
  */
 class NotificationChannelController(
-    private val onServiceAccessInformation: (Int, ServiceAccessInformation) -> Unit
+    private val onServiceAccessInformation: (Int, ServiceAccessInformation) -> Unit,
+    private val onDynamicPolicy: (Int, DynamicPolicy, String) -> Unit = { _, _, _ -> },
+    private val onNetworkAssistanceSession: (Int, NetworkAssistanceSession, String) -> Unit = { _, _, _ -> }
 ) {
     companion object {
         const val TAG = "5GMS-NotificationChannelController"
     }
 
     private val clients = HashMap<Int, MqttAsyncClient>()
+    private val externalServiceIds = java.util.concurrent.ConcurrentHashMap<Int, String>()
+    private val subTopics = java.util.concurrent.ConcurrentHashMap<Int, MutableSet<String>>()
     private val mainHandler = Handler(Looper.getMainLooper())
 
     fun connect(clientId: Int, notificationUrl: String, externalServiceId: String) {
         disconnect(clientId)
+        externalServiceIds[clientId] = externalServiceId
         try {
             val client = MqttAsyncClient(NotificationMessageParser.brokerUri(notificationUrl), "5gms-msh-" + System.nanoTime(), MemoryPersistence())
             client.setCallback(object : MqttCallback {
                 override fun connectComplete(reconnect: Boolean, serverURI: String?) {
                     // the topic of the common notifications of the Provisioning Session
                     client.subscribe(externalServiceId, 1)
+                    // after a reconnection the sub-topics of the resources that still exist are subscribed again
+                    subTopics[clientId]?.toList()?.forEach { client.subscribe(it, 1) }
                     Log.i(TAG, "Subscribed to [$externalServiceId] at $serverURI")
                 }
 
@@ -46,8 +58,15 @@ class NotificationChannelController(
                     Log.d(TAG, "Notification on [$topic]: " + (parsed?.type ?: "not a NotificationMessage"))
                     if (parsed == null) return
                     val resource = parsed.serviceAccessInformation
+                    val reason = parsed.reason ?: return
+                    val dynamicPolicy = parsed.dynamicPolicy
+                    val networkAssistanceSession = parsed.networkAssistanceSession
                     if (parsed.type == NotificationMessageParser.NOTIFICATION_SERVICE_ACCESS_INFORMATION && resource != null) {
                         mainHandler.post { onServiceAccessInformation(clientId, resource) }
+                    } else if (parsed.type == NotificationMessageParser.NOTIFICATION_DYNAMIC_POLICY_INSTANCE && dynamicPolicy != null) {
+                        mainHandler.post { onDynamicPolicy(clientId, dynamicPolicy, reason) }
+                    } else if (parsed.type == NotificationMessageParser.NOTIFICATION_NETWORK_ASSISTANCE_SESSION && networkAssistanceSession != null) {
+                        mainHandler.post { onNetworkAssistanceSession(clientId, networkAssistanceSession, reason) }
                     }
                 }
 
@@ -69,7 +88,35 @@ class NotificationChannelController(
         }
     }
 
+    /** Subscribe to the sub-topic of a resource that this client created at M5; without a notification channel there is nothing to subscribe to */
+    fun subscribe(clientId: Int, resourceId: String) {
+        val externalServiceId = externalServiceIds[clientId] ?: return
+        val topic = "$externalServiceId/$resourceId"
+        subTopics.getOrPut(clientId) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(topic)
+        val client = clients[clientId] ?: return
+        try {
+            if (client.isConnected) client.subscribe(topic, 1)
+        } catch (e: MqttException) {
+            Log.w(TAG, "Cannot subscribe to [$topic]: " + e.message)
+        }
+    }
+
+    /** Leave the sub-topic of a destroyed resource */
+    fun unsubscribe(clientId: Int, resourceId: String) {
+        val externalServiceId = externalServiceIds[clientId] ?: return
+        val topic = "$externalServiceId/$resourceId"
+        subTopics[clientId]?.remove(topic)
+        val client = clients[clientId] ?: return
+        try {
+            if (client.isConnected) client.unsubscribe(topic)
+        } catch (e: MqttException) {
+            Log.w(TAG, "Cannot unsubscribe from [$topic]: " + e.message)
+        }
+    }
+
     fun disconnect(clientId: Int) {
+        subTopics.remove(clientId)
+        externalServiceIds.remove(clientId)
         val client = clients.remove(clientId) ?: return
         try {
             client.disconnectForcibly()

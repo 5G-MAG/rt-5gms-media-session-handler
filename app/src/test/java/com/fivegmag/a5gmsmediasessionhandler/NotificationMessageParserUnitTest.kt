@@ -31,4 +31,34 @@ class NotificationMessageParserUnitTest {
         assertEquals("tcp://broker.example:1883", NotificationMessageParser.brokerUri("mqtt://broker.example:1883"))
         assertEquals("ssl://broker.example", NotificationMessageParser.brokerUri("mqtts://broker.example"))
     }
+
+    // Table 10.2.3-1: a Dynamic Policy Instance notification as the Media AF publishes it
+    @Test
+    fun readsADynamicPolicyNotification() {
+        val payload = """{"type":"NOTIFICATION_DYNAMIC_POLICY_INSTANCE","reason":"NOTIFICATION_REASON_QOS_MONITORING_RESULTS","entityTag":"\"x\"",
+            "dynamicPolicy":{"dynamicPolicyId":"d1","sessionId":"s1","policyTemplateId":"pt1","applicationFlowBindings":[],"qosEnforcement":true,
+            "l4SEnabled":false,"qoSMonitoringEnabled":true,"qoSMonitoringResults":{"dlDelays":[5]}}}"""
+        val message = NotificationMessageParser.parse(payload)!!
+        assertEquals(NotificationMessageParser.NOTIFICATION_DYNAMIC_POLICY_INSTANCE, message.type)
+        assertEquals(NotificationMessageParser.REASON_QOS_MONITORING_RESULTS, message.reason)
+        assertEquals("d1", message.dynamicPolicy!!.dynamicPolicyId)
+        assertEquals(5, message.dynamicPolicy!!.qoSMonitoringResults!!.dlDelays!![0])
+        assertNull(message.networkAssistanceSession)
+        assertNull(message.serviceAccessInformation)
+    }
+
+    @Test
+    fun readsANetworkAssistanceSessionNotification() {
+        val payload = """{"type":"NOTIFICATION_NETWORK_ASSISTANCE_SESSION","reason":"NOTIFICATION_REASON_PROVISIONING_UPDATE",
+            "networkAssistanceSession":{"naSessionId":"n1","sessionId":"s1","applicationFlowDescription":{"filterMethod":"5_TUPLE"}}}"""
+        val message = NotificationMessageParser.parse(payload)!!
+        assertEquals(NotificationMessageParser.NOTIFICATION_NETWORK_ASSISTANCE_SESSION, message.type)
+        assertEquals("n1", message.networkAssistanceSession!!.naSessionId)
+        assertNull(message.dynamicPolicy)
+    }
+
+    @Test
+    fun theBackgroundDataTransferCancellationReasonHasTheNameOfTheSpecification() {
+        assertEquals("NOTIFICATION_REASON_BACKGROUND_DATA_TRANSFER_WINDOW_CANCELLATION", NotificationMessageParser.REASON_BACKGROUND_DATA_TRANSFER_WINDOW_CANCELLATION)
+    }
 }

@@ -19,8 +19,11 @@ import com.fivegmag.a5gmsmediasessionhandler.controller.ClientKey
 import com.fivegmag.a5gmsmediasessionhandler.controller.CivicLookup
 import com.fivegmag.a5gmsmediasessionhandler.controller.LocationFilter
 import com.fivegmag.a5gmsmediasessionhandler.controller.ManifestMetricsConfiguration
+import com.fivegmag.a5gmsmediasessionhandler.controller.AndroidFlowEndpoints
 import com.fivegmag.a5gmsmediasessionhandler.controller.ConsumptionReportingController
+import com.fivegmag.a5gmsmediasessionhandler.controller.DynamicPolicyController
 import com.fivegmag.a5gmsmediasessionhandler.controller.QoeMetricsReportingController
+import com.fivegmag.a5gmsmediasessionhandler.controller.NetworkAssistanceController
 import com.fivegmag.a5gmsmediasessionhandler.controller.NotificationChannelController
 import com.fivegmag.a5gmsmediasessionhandler.controller.ServiceAccessInformationController
 import com.fivegmag.a5gmsmediasessionhandler.controller.SessionController
@@ -61,6 +64,8 @@ class IncomingMessageHandler(
     private lateinit var qoeMetricsReportingController:
             QoeMetricsReportingController
     private lateinit var serviceAccessInformationController: ServiceAccessInformationController
+    private lateinit var dynamicPolicyController: DynamicPolicyController
+    private lateinit var networkAssistanceController: NetworkAssistanceController
     private lateinit var sessionController: SessionController
     private lateinit var notificationChannelController: NotificationChannelController
     private val incomingMessenger = Messenger(IncomingHandler())
@@ -97,6 +102,20 @@ class IncomingMessageHandler(
 
                     SessionHandlerMessageTypes.GET_SESSION_STATUS -> handleGetSessionStatus(msg)
 
+                    SessionHandlerMessageTypes.GET_SERVICE_OPERATION_POINTS -> dynamicPolicyController.handleGetServiceOperationPoints(msg)
+
+                    SessionHandlerMessageTypes.GET_BDT_INFO -> dynamicPolicyController.handleGetBdtInfo(msg)
+
+                    SessionHandlerMessageTypes.ACTIVATE_POLICY -> dynamicPolicyController.handleActivatePolicy(msg)
+
+                    SessionHandlerMessageTypes.DEACTIVATE_POLICY -> dynamicPolicyController.handleDeactivatePolicy(msg)
+
+                    SessionHandlerMessageTypes.GET_DYNAMIC_POLICY_STATUS -> dynamicPolicyController.handleGetDynamicPolicyStatus(msg)
+
+                    SessionHandlerMessageTypes.REQUEST_BIT_RATE_RECOMMENDATION -> networkAssistanceController.handleRequestBitRateRecommendation(msg)
+
+                    SessionHandlerMessageTypes.REQUEST_DELIVERY_BOOST -> networkAssistanceController.handleRequestDeliveryBoost(msg)
+
                     SessionHandlerMessageTypes.GET_CONSUMPTION_REPORTING_STATUS -> consumptionReportingController.handleGetConsumptionReportingStatus(
                         msg
                     )
@@ -132,6 +151,8 @@ class IncomingMessageHandler(
     }
 
     private fun resetClientSession(clientId: Int) {
+        networkAssistanceController.resetClientSession(clientId)
+        dynamicPolicyController.resetClientSession(clientId)
         sessionController.resetClientSession(clientId)
         serviceAccessInformationController.resetClientSession(clientId)
         consumptionReportingController.resetClientSession(clientId)
@@ -141,6 +162,8 @@ class IncomingMessageHandler(
 
     fun reset() {
         notificationChannelController.reset()
+        networkAssistanceController.reset()
+        dynamicPolicyController.reset()
         sessionController.reset()
         serviceAccessInformationController.reset()
         consumptionReportingController.reset()
@@ -220,10 +243,12 @@ class IncomingMessageHandler(
         serviceListEntry: ServiceListEntry,
         clientId: Int,
         responseMessenger: Messenger?,
-        accessToken: String? = null
+        accessToken: String? = null,
+        domainNames: List<String> = emptyList()
     ): Boolean {
         resetClientSession(clientId)
         clientsSessionData[clientId]?.accessToken = accessToken
+        clientsSessionData[clientId]?.domainNames = domainNames
         val mediaDeliverySessionId = clientsSessionData[clientId]?.mediaDeliverySessionId
         var serviceAccessInformation: com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation? = null
         var succeeded = false
@@ -372,9 +397,10 @@ class IncomingMessageHandler(
         val entryPoints = if (entryPoint != null) arrayListOf(EntryPoint(entryPoint, contentTypeOfUrl(entryPoint), null)) else null
         val serviceListEntry = ServiceListEntry(serviceId, contentId ?: "", entryPoints)
         val accessToken = bundle.getString(SessionHandlerBundleKeys.ACCESS_TOKEN)
+        val domainNames = bundle.getStringArrayList(SessionHandlerBundleKeys.DOMAIN_NAMES) ?: emptyList<String>()
 
         CoroutineScope(Dispatchers.Main).launch {
-            val succeeded = startMediaDeliverySession(serviceListEntry, clientId, responseMessenger, accessToken)
+            val succeeded = startMediaDeliverySession(serviceListEntry, clientId, responseMessenger, accessToken, domainNames)
             val reply = Bundle()
             reply.putString(
                 SessionHandlerBundleKeys.MEDIA_DELIVERY_SESSION_IDENTIFIER,
@@ -510,9 +536,20 @@ class IncomingMessageHandler(
                 .addConverterFactory(GsonConverterFactory.create())
                 .client(okHttpClient.newBuilder().socketFactory(network.socketFactory).build())
         }
+        dynamicPolicyController = DynamicPolicyController(clientsSessionData, retrofitBuilder, outgoingMessageHandler)
+        dynamicPolicyController.initialize()
+        dynamicPolicyController.endpoints = { context?.let { AndroidFlowEndpoints(it) } }
+        networkAssistanceController = NetworkAssistanceController(clientsSessionData, retrofitBuilder, outgoingMessageHandler, dynamicPolicyController)
+        networkAssistanceController.endpoints = dynamicPolicyController.endpoints
         serviceAccessInformationController.onStreamingAccessUpdated = ::notifyStreamingAccessUpdated
         notificationChannelController = NotificationChannelController(
-            serviceAccessInformationController::handleNotifiedServiceAccessInformation
+            serviceAccessInformationController::handleNotifiedServiceAccessInformation,
+            dynamicPolicyController::handleNotification,
+            { clientId, session, _ -> networkAssistanceController.handleNotification(clientId, session) }
         )
+        dynamicPolicyController.subscribeTopic = notificationChannelController::subscribe
+        dynamicPolicyController.unsubscribeTopic = notificationChannelController::unsubscribe
+        networkAssistanceController.subscribeTopic = notificationChannelController::subscribe
+        networkAssistanceController.unsubscribeTopic = notificationChannelController::unsubscribe
     }
 }

@@ -32,6 +32,12 @@ data class ClientSessionData(
     var manifestParameters: ManifestParameters? = null,
     // the access token that the application gave to createMediaDeliverySession: presented to the Media AF at M5 (TS 26.510 V19.2.0 table 11.2.2.1-1)
     var accessToken: String? = null,
+    // the Media AS domain names of the media delivery session (TS 26.510 V19.2.0 table 11.2.2.1-1), which the scope of a Dynamic Policy follows (clause 11.3.1.2)
+    var domainNames: List<String> = emptyList(),
+    // the Dynamic Policy client API of this media delivery session (clause 11.3); null until the application uses it
+    var dynamicPolicyService: com.fivegmag.a5gmsmediasessionhandler.controller.DynamicPolicyService? = null,
+    // the Network Assistance client API of this media delivery session (clause 11.4); null until the application uses it
+    var networkAssistanceService: com.fivegmag.a5gmsmediasessionhandler.controller.NetworkAssistanceService? = null,
     var manifestGzip: HashMap<String, Boolean> = HashMap(),
     var qoeMetricsReportingSessionData: HashMap<String, QoeMetricsReportingSessionDataEntry> = HashMap(),
     var consumptionReportingSessionData: ConsumptionReportingSessionData = ConsumptionReportingSessionData(),
