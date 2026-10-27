@@ -75,6 +75,14 @@ class ServiceAccessInformationController(
         acquireAccessToken(clientId, client)
     }
 
+    fun hasClientCredentials(): Boolean = oAuthClient != null
+
+    /** A new access token with the client credentials, for the other M5 calls of the client; false without client credentials */
+    fun renewAccessToken(clientId: Int): Boolean {
+        val client = oAuthClient ?: return false
+        return acquireAccessToken(clientId, client)
+    }
+
     private fun acquireAccessToken(clientId: Int, client: OAuthClientCredentials): Boolean {
         return try {
             clientsSessionData[clientId]?.accessToken = client.requestToken().value

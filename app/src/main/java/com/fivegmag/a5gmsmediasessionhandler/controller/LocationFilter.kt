@@ -56,12 +56,26 @@ object LocationFilter {
     /** A value of TS 29.571 (Tac, NrCellId, EutraCellId) is a string of hexadecimal digits */
     private fun hex(value: String): Long? = value.toLongOrNull(16)
 
-    /** The registered cell of the UE; null when the platform does not tell (no permission, no cell) */
+    @Volatile private var lastCells: List<CellInfo> = emptyList()
+
+    /**
+     * The registered cell of the UE. allCellInfo is the answer of the platform without a request, and is often empty until a request has been made
+     * (the same as for the Media Stream Handler, which asks for it at the playback trigger), so every call also asks the platform for an update;
+     * the answer is used by the next call, and the call itself uses the update of the last one when allCellInfo is empty. Null when the platform
+     * does not tell (no permission, no cell).
+     */
     @SuppressLint("MissingPermission")
     fun currentCell(context: Context): UeCell? {
         val telephony = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager ?: return null
         val cells: List<CellInfo> = try {
-            telephony.allCellInfo ?: return null
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                telephony.requestCellInfoUpdate(context.mainExecutor, object : TelephonyManager.CellInfoCallback() {
+                    override fun onCellInfo(cellInfo: MutableList<CellInfo>) {
+                        lastCells = cellInfo
+                    }
+                })
+            }
+            (telephony.allCellInfo ?: emptyList()).ifEmpty { lastCells }
         } catch (_: SecurityException) {
             return null
         }

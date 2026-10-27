@@ -76,7 +76,7 @@ class ConsumptionReportingController(
         if (reportWithSessionId != null) postConsumptionReport(clientId, reportWithSessionId)
     }
 
-    internal fun postConsumptionReport(clientId: Int, reportWithSessionId: String) {
+    internal fun postConsumptionReport(clientId: Int, reportWithSessionId: String, afterTokenRenewal: Boolean = false) {
         val clientSessionData = clientsSessionData[clientId]
         val provisioningSessionId =
             clientSessionData?.serviceAccessInformationSessionData?.serviceAccessInformation?.provisioningSessionId
@@ -97,6 +97,13 @@ class ConsumptionReportingController(
                     if (response.isSuccessful) {
                         clientSessionData.consumptionReportingSessionData.lastReport = reportWithSessionId
                         notifyClient(clientId, SessionHandlerEvents.ConsumptionReporting.NEW_CONSUMPTION_REPORT)
+                    } else if (!afterTokenRenewal && renewAndRetry(
+                            clientId, response,
+                            { postConsumptionReport(clientId, reportWithSessionId, true) },
+                            { notifyError(clientId, provisioningSessionId, response.code(), response.message()) }
+                        )
+                    ) {
+                        // handled: sent again with a new token, or the error is notified when none could be obtained
                     } else {
                         if (response.code() == 503) keepForLater(clientId, reportWithSessionId, response.headers()["Retry-After"])
                         notifyError(clientId, provisioningSessionId, response.code(), response.message())

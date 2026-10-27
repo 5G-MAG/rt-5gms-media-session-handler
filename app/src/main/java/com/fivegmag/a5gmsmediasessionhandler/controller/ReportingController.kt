@@ -22,6 +22,27 @@ abstract class ReportingController(
 
     protected abstract val outgoingMessageHandler: OutgoingMessageHandler
 
+    /** Obtains a new access token for a client (set by the incoming message handler); false when it could not be obtained */
+    var renewAccessToken: ((Int) -> Boolean)? = null
+
+    /** Whether the Media Session Handler has client credentials with which a new access token can be requested */
+    var hasClientCredentials: () -> Boolean = { false }
+
+    /**
+     * RFC 6750 clause 3.1: a 401 with error="invalid_token" in WWW-Authenticate. When client credentials exist, a new token is requested on a
+     * thread of its own (the response callback runs on the main thread, where a network request is not allowed) and [retry] sends the request
+     * again; [onFailed] runs when no token could be obtained. Returns true when the response is handled here.
+     */
+    protected fun renewAndRetry(clientId: Int, response: Response<*>, retry: () -> Unit, onFailed: () -> Unit): Boolean {
+        if (response.code() != 401 || response.headers()["WWW-Authenticate"]?.contains("invalid_token") != true) return false
+        val renew = renewAccessToken ?: return false
+        if (!hasClientCredentials()) return false
+        Thread {
+            if (renew(clientId)) retry() else onFailed()
+        }.start()
+        return true
+    }
+
     /**
      * Send a notification event of TS 26.510 V19.2.0 clause 11.5 or 11.6 to the client of a media delivery session; the payload starts
      * with the media delivery session identifier. Nothing is sent when the client has no media delivery session.

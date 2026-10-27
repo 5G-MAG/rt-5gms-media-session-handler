@@ -26,7 +26,9 @@ data class M5Result<T>(
     val resource: T? = null,
     val problem: ProblemDetails? = null,
     val location: String? = null,
-    val failure: String? = null
+    val failure: String? = null,
+    /** A 401 whose WWW-Authenticate header field says error="invalid_token" (RFC 6750 clause 3.1): a new access token may be accepted */
+    val invalidToken: Boolean = false
 ) {
     val isSuccess: Boolean get() = code in 200..299
     val isUnauthorised: Boolean get() = code == 401 || code == 403
@@ -41,16 +43,28 @@ object M5Calls {
 
     fun body(resource: Any): RequestBody = RequestBody.create(json, gson.toJson(resource))
 
+    /**
+     * Run [call] with [authorization]; when the Media AF answers 401 invalid_token and [renew] gives a new Authorization value, run it once more
+     * with that value (RFC 6750 clause 3.1). Runs on the thread of the caller, which must not be the main thread.
+     */
+    fun <T> withRenewal(authorization: String?, renew: (() -> String?)?, call: (String?) -> M5Result<T>): M5Result<T> {
+        val first = call(authorization)
+        if (!first.invalidToken || renew == null) return first
+        val renewed = renew() ?: return first
+        return call(renewed)
+    }
+
     /** Run the call and read the answer; a response with no body, or one that is not JSON, has no resource */
     fun <T> execute(call: Call<ResponseBody>, type: Class<T>?): M5Result<T> {
         return try {
             val response = call.execute()
             val text = (if (response.isSuccessful) response.body() else response.errorBody())?.use { it.string() }
             val location = response.headers()["Location"]
+            val invalidToken = response.code() == 401 && response.headers()["WWW-Authenticate"]?.contains("invalid_token") == true
             if (response.isSuccessful) {
                 M5Result(response.code(), if (type != null && !text.isNullOrBlank()) parse(text, type) else null, null, location)
             } else {
-                M5Result(response.code(), null, if (text.isNullOrBlank()) null else parse(text, ProblemDetails::class.java), location)
+                M5Result(response.code(), null, if (text.isNullOrBlank()) null else parse(text, ProblemDetails::class.java), location, null, invalidToken)
             }
         } catch (e: java.io.IOException) {
             M5Result(0, failure = e.message ?: e.javaClass.simpleName)

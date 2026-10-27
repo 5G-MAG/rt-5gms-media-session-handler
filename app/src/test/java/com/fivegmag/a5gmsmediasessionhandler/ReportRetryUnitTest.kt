@@ -104,4 +104,59 @@ class ReportRetryUnitTest {
         assertEquals(30L, PendingReports.retryDelaySeconds("-5", 30))
         assertTrue(PendingReports.retryDelaySeconds("0", 30) == 0L)
     }
+
+    private val invalidToken = "Bearer error=\"invalid_token\""
+
+    @Test
+    fun aConsumptionReportThatGot401InvalidTokenIsSentAgainOnceWithANewToken() {
+        sessions[1]!!.consumptionReportingSessionData.api = retrofit.create(IConsumptionReportingApi::class.java)
+        consumption.hasClientCredentials = { true }
+        consumption.renewAccessToken = { id -> sessions[id]!!.accessToken = "t2"; true }
+        af.answerOnce("POST", "provisioning-sessions/ps1/consumption-reporting/", MediaAfDouble.Response(401, wwwAuthenticate = invalidToken))
+        af.answer("POST", "provisioning-sessions/ps1/consumption-reporting/", MediaAfDouble.Response(204))
+        consumption.postConsumptionReport(1, """{"sessionId":"s"}""")
+        waitFor(2)
+        assertEquals(2, af.requests.size)
+        assertEquals("Bearer t", af.requests[0].authorization)
+        assertEquals("Bearer t2", af.requests[1].authorization)
+    }
+
+    @Test
+    fun aConsumptionReportIsNotSentAgainMoreThanOnceAfterANewToken() {
+        sessions[1]!!.consumptionReportingSessionData.api = retrofit.create(IConsumptionReportingApi::class.java)
+        consumption.hasClientCredentials = { true }
+        consumption.renewAccessToken = { true }
+        af.answer("POST", "provisioning-sessions/ps1/consumption-reporting/", MediaAfDouble.Response(401, wwwAuthenticate = invalidToken))
+        consumption.postConsumptionReport(1, """{"sessionId":"s"}""")
+        waitFor(3)
+        assertEquals(2, af.requests.size)
+    }
+
+    @Test
+    fun aConsumptionReportThatGot401IsNotSentAgainWithoutClientCredentials() {
+        sessions[1]!!.consumptionReportingSessionData.api = retrofit.create(IConsumptionReportingApi::class.java)
+        consumption.hasClientCredentials = { false }
+        consumption.renewAccessToken = { true }
+        af.answer("POST", "provisioning-sessions/ps1/consumption-reporting/", MediaAfDouble.Response(401, wwwAuthenticate = invalidToken))
+        consumption.postConsumptionReport(1, """{"sessionId":"s"}""")
+        waitFor(2)
+        assertEquals(1, af.requests.size)
+    }
+
+    @Test
+    fun aMetricsReportThatGot401InvalidTokenIsSentAgainOnceWithANewToken() {
+        val configuration = Gson().fromJson(
+            """{"metricsReportingConfigurationId":"c1","serverAddresses":[],"samplingPeriod":1000,"metrics":[]}""",
+            ClientMetricsReportingConfiguration::class.java
+        )
+        sessions[1]!!.qoeMetricsReportingSessionData["c1"] = QoeMetricsReportingSessionDataEntry(api = retrofit.create(IMetricsReportingApi::class.java))
+        qoe.hasClientCredentials = { true }
+        qoe.renewAccessToken = { id -> sessions[id]!!.accessToken = "t2"; true }
+        af.answerOnce("POST", "provisioning-sessions/ps1/metrics-reporting/c1", MediaAfDouble.Response(401, wwwAuthenticate = invalidToken))
+        af.answer("POST", "provisioning-sessions/ps1/metrics-reporting/c1", MediaAfDouble.Response(204))
+        qoe.postMetricsReport(1, configuration, "<QoEReport/>")
+        waitFor(2)
+        assertEquals(2, af.requests.size)
+        assertEquals("Bearer t2", af.requests[1].authorization)
+    }
 }

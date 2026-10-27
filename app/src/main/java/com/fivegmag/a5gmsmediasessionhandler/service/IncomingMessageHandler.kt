@@ -313,6 +313,7 @@ class IncomingMessageHandler(
                     serviceAccessInformation,
                     mediaEntryPointUrl
                 )
+                qoeMetricsReportingController.startCmcdLocationUpdates(clientId, serviceAccessInformation, mediaEntryPointUrl)
                 // clause 5.3.2.3: connect to the notification channel the Media AF nominates
                 serviceAccessInformation.notificationURL?.let {
                     notificationChannelController.connect(clientId, it, serviceListEntry.externalServiceId)
@@ -550,6 +551,12 @@ class IncomingMessageHandler(
         serviceAccessInformationController =
             ServiceAccessInformationController(clientsSessionData, retrofitBuilder)
         serviceAccessInformationController.initialize(configurationProperties)
+        // a report that the Media AF refuses with 401 invalid_token is sent again once with a new access token (RFC 6750 clause 3.1)
+        consumptionReportingController.renewAccessToken = { serviceAccessInformationController.renewAccessToken(it) }
+        qoeMetricsReportingController.renewAccessToken = { serviceAccessInformationController.renewAccessToken(it) }
+        consumptionReportingController.hasClientCredentials = { serviceAccessInformationController.hasClientCredentials() }
+        qoeMetricsReportingController.hasClientCredentials = { serviceAccessInformationController.hasClientCredentials() }
+        configurationProperties.getProperty("cmcdLocationCheckSeconds")?.toLongOrNull()?.let { if (it > 0) qoeMetricsReportingController.cmcdLocationCheckMs = it * 1000L }
         configurationProperties.getProperty("dataNetworkRequestTimeout")?.toIntOrNull()?.let { dataNetworkRequestTimeout = it }
         qoeMetricsReportingController.currentCell = { context?.let { LocationFilter.currentCell(it) } }
         val locationMaxAgeMs = (configurationProperties.getProperty("locationMaxAgeSeconds")?.toLongOrNull() ?: 300L) * 1000L
@@ -565,6 +572,11 @@ class IncomingMessageHandler(
         dynamicPolicyController.initialize()
         dynamicPolicyController.endpoints = { context?.let { AndroidFlowEndpoints(it) } }
         networkAssistanceController = NetworkAssistanceController(clientsSessionData, retrofitBuilder, outgoingMessageHandler, dynamicPolicyController)
+        // an M5 call that the Media AF refuses with 401 invalid_token is made again once with a new access token (RFC 6750 clause 3.1)
+        dynamicPolicyController.renewAccessToken = { serviceAccessInformationController.renewAccessToken(it) }
+        networkAssistanceController.renewAccessToken = { serviceAccessInformationController.renewAccessToken(it) }
+        dynamicPolicyController.hasClientCredentials = { serviceAccessInformationController.hasClientCredentials() }
+        networkAssistanceController.hasClientCredentials = { serviceAccessInformationController.hasClientCredentials() }
         networkAssistanceController.endpoints = dynamicPolicyController.endpoints
         serviceAccessInformationController.onStreamingAccessUpdated = ::notifyStreamingAccessUpdated
         serviceAccessInformationController.onAccessDenied = ::notifySessionHandlingError

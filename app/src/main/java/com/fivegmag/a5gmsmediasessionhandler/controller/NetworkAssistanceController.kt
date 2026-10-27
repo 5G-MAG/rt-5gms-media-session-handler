@@ -26,6 +26,19 @@ class NetworkAssistanceController(
 
     var endpoints: () -> FlowEndpoints? = { null }
 
+    /** Obtains a new access token for a client (set by the incoming message handler); false when it could not be obtained */
+    var renewAccessToken: ((Int) -> Boolean)? = null
+
+    /** Whether the Media Session Handler has client credentials with which a new access token can be requested */
+    var hasClientCredentials: () -> Boolean = { false }
+
+    /** The way to a new Authorization value after a 401 invalid_token (RFC 6750 clause 3.1), only with client credentials */
+    private fun renewal(clientId: Int, session: ClientSessionData): (() -> String?)? {
+        val renew = renewAccessToken ?: return null
+        if (!hasClientCredentials()) return null
+        return { if (renew(clientId)) bearer(session.accessToken) else null }
+    }
+
     /** The sub-topic of the notification channel of a resource that this client created at M5 */
     var subscribeTopic: (Int, String) -> Unit = { _, _ -> }
     var unsubscribeTopic: (Int, String) -> Unit = { _, _ -> }
@@ -39,7 +52,7 @@ class NetworkAssistanceController(
         val created = NetworkAssistanceService(
             session.mediaDeliverySessionId,
             { session.serviceAccessInformationSessionData.serviceAccessInformation },
-            { sai -> clientFor(sai, session) },
+            { sai -> clientFor(sai, session, clientId) },
             { endpoints() },
             { session.domainNames.ifEmpty { listOfNotNull(hostOf(session.generalStatus?.mediaEntryPointUrl)) } },
             { dynamicPolicyController.serviceOf(clientId, session.mediaDeliverySessionId)?.activePolicyTemplateId },
@@ -51,11 +64,11 @@ class NetworkAssistanceController(
         return created
     }
 
-    private fun clientFor(sai: ServiceAccessInformation, session: ClientSessionData): NetworkAssistanceM5Client? {
+    private fun clientFor(sai: ServiceAccessInformation, session: ClientSessionData, clientId: Int): NetworkAssistanceM5Client? {
         // clause 9.4.2: one of the serverAddresses of the networkAssistanceConfiguration
         val address = sai.networkAssistanceConfiguration?.serverAddresses?.firstOrNull() ?: return null
         val api = retrofitBuilder.baseUrl(if (address.endsWith("/")) address else "$address/").build().create(INetworkAssistanceApi::class.java)
-        return NetworkAssistanceM5Client(api, bearer(session.accessToken))
+        return NetworkAssistanceM5Client(api, bearer(session.accessToken), renewal(clientId, session))
     }
 
     private fun hostOf(url: String?): String? = try {

@@ -63,6 +63,44 @@ class QoeMetricsReportingController(
         return LocationFilter.isLocated(configuration.locationFilter, currentCell?.invoke(), position, civic)
     }
 
+    /** How often, in milliseconds, the Media Session Handler checks whether the UE is inside the locationFilter of a CMCD configuration */
+    var cmcdLocationCheckMs = 5000L
+    private val cmcdLocationTimers = java.util.concurrent.ConcurrentHashMap<Int, Timer>()
+
+    /**
+     * CMCD keys are added to the requests by the Media Stream Handler, so the locationFilter of a CMCD configuration (TS 26.510 V19.2.0 table
+     * 8.7.3.1-1) is checked here and the Media Stream Handler is told whenever the answer changes, and once at the start.
+     */
+    fun startCmcdLocationUpdates(clientId: Int, serviceAccessInformation: ServiceAccessInformation?, mediaEntryPointUrl: String?) {
+        stopCmcdLocationUpdates(clientId)
+        val configurations = serviceAccessInformation?.clientMetricsReportingConfigurations?.filter {
+            CmcdSchemes.KEYS.containsKey(it.scheme) && !it.locationFilter.isNullOrEmpty() && appliesTo(clientId, it, mediaEntryPointUrl)
+        }
+        if (configurations.isNullOrEmpty()) return
+        val last = HashMap<String, Boolean>()
+        val timer = Timer(true)
+        timer.schedule(object : TimerTask() {
+            override fun run() {
+                val messenger = clientsSessionData[clientId]?.messenger ?: return
+                for (configuration in configurations) {
+                    val located = located(configuration)
+                    if (last[configuration.metricsReportingConfigurationId] == located) continue
+                    last[configuration.metricsReportingConfigurationId] = located
+                    Log.d(TAG, "The UE is ${if (located) "inside" else "outside"} the locationFilter of CMCD configuration [${configuration.metricsReportingConfigurationId}], cell ${currentCell?.invoke()}")
+                    val bundle = Bundle()
+                    bundle.putString(SessionHandlerBundleKeys.METRICS_REPORTING_CONFIGURATION_ID, configuration.metricsReportingConfigurationId)
+                    bundle.putBoolean(SessionHandlerBundleKeys.LOCATED, located)
+                    outgoingMessageHandler.sendMessage(SessionHandlerMessageTypes.CMCD_LOCATION_UPDATE, bundle, messenger)
+                }
+            }
+        }, 0L, cmcdLocationCheckMs)
+        cmcdLocationTimers[clientId] = timer
+    }
+
+    fun stopCmcdLocationUpdates(clientId: Int) {
+        cmcdLocationTimers.remove(clientId)?.cancel()
+    }
+
     private fun nowMs(): Long = System.nanoTime() / 1_000_000L
 
     private fun windowOf(configuration: ClientMetricsReportingConfiguration) =
@@ -125,6 +163,9 @@ class QoeMetricsReportingController(
                 clientMetricsReportingConfiguration.metricsReportingConfigurationId,
                 clientMetricsReportingConfiguration.positiveCrossingThresholds,
                 clientMetricsReportingConfiguration.negativeCrossingThresholds,
+                clientMetricsReportingConfiguration.reportingStartOffset,
+                clientMetricsReportingConfiguration.reportingDuration,
+                !clientMetricsReportingConfiguration.locationFilter.isNullOrEmpty(),
             )
             qoeMetricsRequests.add(qoeMetricsRequest)
         }
@@ -190,7 +231,8 @@ class QoeMetricsReportingController(
     internal fun postMetricsReport(
         clientId: Int,
         clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration,
-        metricsString: String?
+        metricsString: String?,
+        afterTokenRenewal: Boolean = false
     ) {
         val clientSessionData = clientsSessionData[clientId] ?: return
         val metricsReportingConfigurationId: String? = clientMetricsReportingConfiguration.metricsReportingConfigurationId
@@ -229,6 +271,13 @@ class QoeMetricsReportingController(
                     qoeMetricsReportingSessionDataEntry.lastReport = metricsString
                     notifyClient(clientId, SessionHandlerEvents.MetricsReporting.NEW_METRICS_REPORT)
                     clientSessionData.lastMetricsConfigurationId = metricsReportingConfigurationId
+                } else if (!afterTokenRenewal && renewAndRetry(
+                        clientId, response,
+                        { postMetricsReport(clientId, clientMetricsReportingConfiguration, metricsString, true) },
+                        { notifyError(clientId, provisioningSessionId, metricsReportingConfigurationId, qoeMetricsReportingSessionDataEntry, response.code(), response.message()) }
+                    )
+                ) {
+                    // handled: sent again with a new token, or the error is notified when none could be obtained
                 } else {
                     if (response.code() == 503 && metricsString != null) {
                         keepForLater(clientId, clientMetricsReportingConfiguration, qoeMetricsReportingSessionDataEntry, metricsString, response.headers()["Retry-After"])
@@ -746,6 +795,7 @@ class QoeMetricsReportingController(
     }
 
     override fun stopReportingTimer(clientId: Int) {
+        stopCmcdLocationUpdates(clientId)
         val qoeMetricsReportingSessionData =
             clientsSessionData[clientId]?.qoeMetricsReportingSessionData ?: return
 

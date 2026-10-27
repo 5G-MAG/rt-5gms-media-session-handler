@@ -4,6 +4,10 @@
     <!-- The shortest period, in seconds, between two checks of the Service Access Information, whatever max-age or Expires say. No clause gives
          a value; this is the default, the operator of the device may change it. -->
     <entry key="minServiceAccessInformationTimerInterval">1</entry>
+    <!-- How often, in seconds, the Media Session Handler checks whether the UE is inside the locationFilter of a CMCD metrics reporting
+         configuration and tells the Media Stream Handler, which adds the CMCD keys to the requests. No clause gives a value; this is the
+         default, the operator of the device may change it. -->
+    <entry key="cmcdLocationCheckSeconds">5</entry>
     <!-- How long, in milliseconds, the Media Session Handler waits for the network of a Data Network (dataNetworkName of a metrics
          reporting configuration) before it reports the Data Network as not available. No clause gives a value; this is the default,
          the operator of the device may change it. -->
