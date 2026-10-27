@@ -29,7 +29,6 @@ import java.util.Timer
 import java.util.TimerTask
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
-import kotlin.math.abs
 
 class ServiceAccessInformationController(
     private val clientsSessionData: HashMap<Int, ClientSessionData>,
@@ -55,6 +54,7 @@ class ServiceAccessInformationController(
         defaultServiceAccessInformationTimerInterval =
             configurationProperties.getProperty("defaultServiceAccessInformationTimerInterval")
                 .toLong()
+        configurationProperties.getProperty("minServiceAccessInformationTimerInterval")?.toLongOrNull()?.let { minimumRefreshSeconds = it }
         val tokenUrl = configurationProperties.getProperty("oauthTokenUrl")?.trim()
         val clientId = configurationProperties.getProperty("oauthClientId")?.trim()
         if (!tokenUrl.isNullOrEmpty() && !clientId.isNullOrEmpty()) {
@@ -344,7 +344,17 @@ class ServiceAccessInformationController(
         )
     }
 
-    private fun getRefreshTimerValue(
+    /** The shortest refresh period in seconds (config.properties.xml, default 1): a max-age of 0 would make the check loop without pause */
+    var minimumRefreshSeconds: Long = 1L
+
+    /** The refresh period in seconds, not below minimumRefreshSeconds */
+    internal fun getRefreshTimerValue(
+        periodByMaxAgeHeader: Long,
+        periodByExpiresHeader: Long,
+        defaultPeriodInSec: Long
+    ): Long = maxOf(minimumRefreshSeconds, computeRefreshTimerValue(periodByMaxAgeHeader, periodByExpiresHeader, defaultPeriodInSec))
+
+    private fun computeRefreshTimerValue(
         periodByMaxAgeHeader: Long,
         periodByExpiresHeader: Long,
         defaultPeriodInSec: Long
@@ -363,7 +373,8 @@ class ServiceAccessInformationController(
         return periodInSec
     }
 
-    private fun getPeriodFromExpiresHeader(headers: Headers): Long {
+    /** The seconds until the Expires header field, 0 once that time has passed or when it is not a valid date (RFC 9111 clause 5.3), -1 without the field */
+    fun getPeriodFromExpiresHeader(headers: Headers, now: Long = System.currentTimeMillis()): Long {
         var periodByExpiresHeader: Long = -1
         val dateInExpHeader = headers.get("Expires")
 
@@ -371,16 +382,14 @@ class ServiceAccessInformationController(
             if (dateInExpHeader != null) {
                 val dateFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.ENGLISH)
                 dateFormat.timeZone = TimeZone.getTimeZone("UTC")
-                val expHeaderFormattedDate = dateFormat.parse(dateInExpHeader)
-                val currentDate = dateFormat.format(Date(System.currentTimeMillis()))
-                val currentFormattedDate = dateFormat.parse(currentDate)
-                val difference = abs(currentFormattedDate!!.time - expHeaderFormattedDate!!.time)
-                periodByExpiresHeader = difference / 1000
+                val expires = dateFormat.parse(dateInExpHeader)!!.time
+                periodByExpiresHeader = maxOf(expires - now, 0L) / 1000
             }
 
             periodByExpiresHeader
         } catch (e: Exception) {
-            periodByExpiresHeader
+            // an invalid date, especially "0", represents a time in the past (RFC 9111 clause 5.3)
+            if (dateInExpHeader != null) 0L else periodByExpiresHeader
         }
     }
 

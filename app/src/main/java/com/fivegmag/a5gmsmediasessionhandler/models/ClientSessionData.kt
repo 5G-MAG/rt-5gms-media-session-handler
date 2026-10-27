@@ -65,6 +65,8 @@ data class QoeMetricsReportingSessionDataEntry(
     var selected: Boolean = false,
     // the samplePercentage that the draw was made for
     var drawnForSamplePercentage: Float? = null,
+    // the draw was made before the playback request (a CMCD configuration) and is kept
+    var drawn: Boolean = false,
     // metrics reporting of this configuration is active (METRICS_REPORTING_ACTIVATED was sent for it and STOPPED was not)
     var active: Boolean = false,
     // the start of the media delivery session for this configuration (System.nanoTime based, in ms): reportingStartOffset and

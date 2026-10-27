@@ -3,6 +3,7 @@ package com.fivegmag.a5gmsmediasessionhandler.controller
 import android.os.Bundle
 import android.os.Message
 import android.util.Log
+import com.fivegmag.a5gmscommonlibrary.helpers.CmcdSchemes
 import com.fivegmag.a5gmscommonlibrary.helpers.ContentTypes
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerBundleKeys
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerEvents
@@ -74,21 +75,40 @@ class QoeMetricsReportingController(
     ) {
         if (serviceAccessInformation.clientMetricsReportingConfigurations != null && serviceAccessInformation.clientMetricsReportingConfigurations!!.size > 0) {
             for (clientMetricsReportingConfiguration in serviceAccessInformation.clientMetricsReportingConfigurations!!.filter { appliesTo(clientId, it, mediaEntryPointUrl) })
-                clientsSessionData[clientId]?.qoeMetricsReportingSessionData?.set(
-                    clientMetricsReportingConfiguration.metricsReportingConfigurationId,
-                    QoeMetricsReportingSessionDataEntry()
-                )
+                clientsSessionData[clientId]?.qoeMetricsReportingSessionData?.getOrPut(
+                    clientMetricsReportingConfiguration.metricsReportingConfigurationId
+                ) { QoeMetricsReportingSessionDataEntry() }
         }
     }
 
     fun getQoeMetricsRequests(clientId: Int, serviceAccessInformation: ServiceAccessInformation?, mediaEntryPointUrl: String?): ArrayList<QoeMetricsRequest> {
         if (serviceAccessInformation?.clientMetricsReportingConfigurations != null) {
             return getQoeMetricsRequestsByClientMetricsReportingConfigurations(
-                ArrayList(serviceAccessInformation.clientMetricsReportingConfigurations!!.filter { appliesTo(clientId, it, mediaEntryPointUrl) })
+                ArrayList(serviceAccessInformation.clientMetricsReportingConfigurations!!.filter {
+                    appliesTo(clientId, it, mediaEntryPointUrl) && drawnForCmcd(clientId, it)
+                })
             )
         }
 
         return ArrayList()
+    }
+
+    /**
+     * The player starts reporting CMCD as soon as it gets the configuration, so the draw of samplePercentage for a CMCD configuration is made
+     * here, before the playback request is built, and a configuration that the draw does not select is left out (TS 26.510 V19.2.0 clause 5.3.5.1:
+     * "...activate the metrics reporting procedure for the Metrics Reporting Configuration when the generated random number is of a lower value
+     * than the samplePercentage value."). The draw is kept in the session data and is not repeated. Other schemes always pass.
+     */
+    private fun drawnForCmcd(clientId: Int, configuration: ClientMetricsReportingConfiguration): Boolean {
+        if (!CmcdSchemes.KEYS.containsKey(configuration.scheme)) return true
+        val session = clientsSessionData[clientId] ?: return true
+        val entry = session.qoeMetricsReportingSessionData.getOrPut(configuration.metricsReportingConfigurationId) { QoeMetricsReportingSessionDataEntry() }
+        if (!entry.drawn) {
+            entry.selected = shouldReportAccordingToSamplePercentage(configuration.samplePercentage)
+            entry.drawnForSamplePercentage = configuration.samplePercentage
+            entry.drawn = true
+        }
+        return entry.selected
     }
 
     private fun getQoeMetricsRequestsByClientMetricsReportingConfigurations(
@@ -327,8 +347,10 @@ class QoeMetricsReportingController(
             clientMetricsReportingConfiguration.metricsReportingConfigurationId
         ) ?: return
         entry.sessionStartMs = nowMs()
-        entry.selected = shouldReportAccordingToSamplePercentage(clientMetricsReportingConfiguration.samplePercentage)
-        entry.drawnForSamplePercentage = clientMetricsReportingConfiguration.samplePercentage
+        if (!(entry.drawn && CmcdSchemes.KEYS.containsKey(clientMetricsReportingConfiguration.scheme))) {
+            entry.selected = shouldReportAccordingToSamplePercentage(clientMetricsReportingConfiguration.samplePercentage)
+            entry.drawnForSamplePercentage = clientMetricsReportingConfiguration.samplePercentage
+        }
         if (entry.selected) activate(clientId, entry)
         initializeReportingTimerForConfiguration(
             clientId,

@@ -185,4 +185,35 @@ class ConfigurationChangesUnitTest {
         consumption.initializeReportingTimer(1, 0)
         verify(exactly = 0) { outgoing.sendMessage(SessionHandlerMessageTypes.GET_CONSUMPTION_REPORT, any(), any()) }
     }
+
+    private fun saiWith(vararg configurations: Pair<String, Pair<String, Int>>): ServiceAccessInformation {
+        val list = configurations.joinToString(",") { (id, schemeAndPercentage) ->
+            "{\"metricsReportingConfigurationId\":\"$id\",\"serverAddresses\":[\"http://127.0.0.1:1/m5/\"],\"scheme\":\"${schemeAndPercentage.first}\",\"samplingPeriod\":1000,\"metrics\":[],\"samplePercentage\":${schemeAndPercentage.second}}"
+        }
+        return Gson().fromJson("{\"provisioningSessionId\":\"ps1\",\"clientMetricsReportingConfigurations\":[$list]}", ServiceAccessInformation::class.java)
+    }
+
+    // clause 5.3.5.1: the draw of samplePercentage decides whether the procedure is activated; the player reports CMCD from the start
+    @Test
+    fun aCmcdConfigurationThatTheDrawDoesNotSelectIsNotHandedToThePlayer() {
+        session(running = false)
+        val cmcd = com.fivegmag.a5gmscommonlibrary.helpers.CmcdSchemes.REQUEST
+        val requests = qoe.getQoeMetricsRequests(
+            1, saiWith("drawn" to (cmcd to 100), "notDrawn" to (cmcd to 0), "qm10" to ("urn:3GPP:ns:PSS:DASH:QM10" to 0)), null
+        )
+        assertEquals(listOf("drawn", "qm10"), requests.map { it.metricsReportingConfigurationId })
+    }
+
+    @Test
+    fun theDrawOfACmcdConfigurationIsKeptAtTheStart() {
+        session(running = false)
+        val cmcd = com.fivegmag.a5gmscommonlibrary.helpers.CmcdSchemes.REQUEST
+        val sai = saiWith("drawn" to (cmcd to 100), "notDrawn" to (cmcd to 0))
+        qoe.getQoeMetricsRequests(1, sai, null)
+        sessions[1]!!.serviceAccessInformationSessionData.serviceAccessInformation = sai
+        qoe.initializeReporting(1, sai, null)
+        qoe.initializeReportingTimer(1, 0)
+        assertTrue(sessions[1]!!.qoeMetricsReportingSessionData["drawn"]!!.selected)
+        assertFalse(sessions[1]!!.qoeMetricsReportingSessionData["notDrawn"]!!.selected)
+    }
 }

@@ -1,6 +1,7 @@
 package com.fivegmag.a5gmsmediasessionhandler.service
 
 import android.os.Bundle
+import com.fivegmag.a5gmsmediasessionhandler.network.SessionIdentifierHeader
 import android.os.Handler
 import android.os.Message
 import android.os.Messenger
@@ -273,7 +274,7 @@ class IncomingMessageHandler(
             } else if (serviceAccessInformation != null && finalEntryPoints != null) {
                 mediaEntryPointUrl = finalEntryPoints[0].locator
                 // clause 4.9.2 of TS 26.512: a client metrics configuration in the manifest is used for the session
-                val manifestConfigurations = withContext(Dispatchers.IO) { fetchManifestMetricsConfigurations(finalEntryPoints[0]) }
+                val manifestConfigurations = withContext(Dispatchers.IO) { fetchManifestMetricsConfigurations(finalEntryPoints[0], mediaDeliverySessionId) }
                 if (manifestConfigurations.isNotEmpty()) {
                     val converted = ArrayList(manifestConfigurations.mapIndexed { index, c -> c.toClientConfiguration(index) })
                     serviceAccessInformation.clientMetricsReportingConfigurations = converted
@@ -369,12 +370,15 @@ class IncomingMessageHandler(
     }
 
     /** The client metrics configurations that the manifest of a DASH Media Entry Point carries; none for another kind of entry point */
-    private fun fetchManifestMetricsConfigurations(entryPoint: EntryPoint): List<ManifestMetricsConfiguration> {
+    private fun fetchManifestMetricsConfigurations(entryPoint: EntryPoint, mediaDeliverySessionId: String?): List<ManifestMetricsConfiguration> {
         val locator = entryPoint.locator
         val isDash = entryPoint.contentType == ContentTypes.DASH || locator.substringBefore('?').lowercase().endsWith(".mpd")
         if (!isDash || !(locator.startsWith("http://") || locator.startsWith("https://"))) return emptyList()
         return try {
-            val request = okhttp3.Request.Builder().url(locator).build()
+            val builder = okhttp3.Request.Builder().url(locator)
+            // the request goes to the Media AS at reference point M4: it cites the media delivery session like the requests of the Media Stream Handler (clause 10.1A of TS 26.512)
+            mediaDeliverySessionId?.let { builder.header(SessionIdentifierHeader.NAME, SessionIdentifierHeader.value(it)) }
+            val request = builder.build()
             okHttpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) emptyList() else ManifestMetricsConfiguration.parse(response.body()?.string() ?: "")
             }
