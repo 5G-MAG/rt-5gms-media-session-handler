@@ -5,11 +5,14 @@ import android.os.Handler
 import android.os.Message
 import android.os.Messenger
 import android.util.Log
+import com.fivegmag.a5gmscommonlibrary.consumptionReporting.ConsumptionRequest
+import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
+import com.fivegmag.a5gmscommonlibrary.qoeMetricsReporting.QoeMetricsRequest
+import com.fivegmag.a5gmscommonlibrary.session.PlaybackRequest
 import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.helpers.Utils
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
-import com.fivegmag.a5gmscommonlibrary.session.PlaybackRequest
 import com.fivegmag.a5gmsmediasessionhandler.controller.ConsumptionReportingController
 import com.fivegmag.a5gmsmediasessionhandler.controller.QoeMetricsReportingController
 import com.fivegmag.a5gmsmediasessionhandler.controller.ServiceAccessInformationController
@@ -126,6 +129,7 @@ class IncomingMessageHandler(
     }
 
     private fun handlePlaybackStateEnded(clientId: Int) {
+        clientsSessionData[clientId]?.mediaDeliverySessionId = null
         consumptionReportingController.stopReportingTimer(
             clientId
         )
@@ -156,13 +160,19 @@ class IncomingMessageHandler(
         val responseMessenger = msg.replyTo
 
         resetClientSession(clientId)
+
+        val mediaDeliverySessionId = utils.generateUUID()
+        clientsSessionData[clientId]?.mediaDeliverySessionId = mediaDeliverySessionId
+
         CoroutineScope(Dispatchers.Main).launch {
             val serviceAccessInformation = withContext(Dispatchers.IO) {
                 serviceAccessInformationController.updateServiceAccessInformation(
                     serviceListEntry,
-                    clientId
+                    clientId,
+                    mediaDeliverySessionId
                 )
             }
+            if (clientsSessionData[clientId]?.mediaDeliverySessionId != mediaDeliverySessionId) return@launch
 
             val finalEntryPoints = sessionController.getFinalEntryPoints(serviceListEntry, clientId)
 
@@ -173,13 +183,12 @@ class IncomingMessageHandler(
                     )
                 val qoeMetricsRequests =
                     qoeMetricsReportingController.getQoeMetricsRequests(serviceAccessInformation)
-                val mediaStreamingSessionIdentifier = utils.generateUuidToHexBinary()
                 val playbackRequest =
-                    PlaybackRequest(
+                    createPlaybackRequest(
                         finalEntryPoints,
                         consumptionRequest,
                         qoeMetricsRequests,
-                        mediaStreamingSessionIdentifier
+                        mediaDeliverySessionId
                     )
                 val responseBundle = Bundle()
                 responseBundle.putParcelable("playbackRequest", playbackRequest)
@@ -238,3 +247,18 @@ class IncomingMessageHandler(
         serviceAccessInformationController.initialize(configurationProperties)
     }
 }
+
+/** Builds the playback request independently of Android message handling for unit tests. */
+internal fun createPlaybackRequest(
+    entryPoints: ArrayList<EntryPoint>,
+    consumptionRequest: ConsumptionRequest,
+    qoeMetricsRequests: ArrayList<QoeMetricsRequest>,
+    mediaDeliverySessionId: String
+): PlaybackRequest = PlaybackRequest(
+    entryPoints = entryPoints,
+    consumptionRequest = consumptionRequest,
+    qoeMetricsRequests = qoeMetricsRequests,
+    // QoE recordingSessionId is xs:hexBinary and cannot contain UUID hyphens.
+    mediaStreamingSessionIdentifier = Utils().generateUuidToHexBinary(),
+    mediaDeliverySessionId = mediaDeliverySessionId
+)
