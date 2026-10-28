@@ -64,6 +64,7 @@ class ServiceAccessInformationController(
 
     private fun resetAfterM5Change(clientId: Int) {
         resetClientSession(clientId)
+        clientsSessionData[clientId]?.mediaDeliverySessionId = null
         clientsSessionData[clientId]?.serviceAccessInformationSessionData =
             ServiceAccessInformationSessionData()
     }

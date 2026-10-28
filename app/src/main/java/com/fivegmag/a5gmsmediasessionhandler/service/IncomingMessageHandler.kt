@@ -129,6 +129,7 @@ class IncomingMessageHandler(
     }
 
     private fun handlePlaybackStateEnded(clientId: Int) {
+        clientsSessionData[clientId]?.mediaDeliverySessionId = null
         consumptionReportingController.stopReportingTimer(
             clientId
         )
