@@ -87,9 +87,10 @@ class ServiceAccessInformationController(
 
     suspend fun updateServiceAccessInformation(
         serviceListEntry: ServiceListEntry?,
-        clientId: Int
+        clientId: Int,
+        mediaDeliverySessionId: String
     ): ServiceAccessInformation? {
-
+        if (clientsSessionData[clientId]?.mediaDeliverySessionId != mediaDeliverySessionId) return null
         val provisioningSessionId: String = serviceListEntry!!.provisioningSessionId
         val call: Call<ServiceAccessInformation>? =
             clientsSessionData[clientId]?.serviceAccessInformationSessionData?.api?.fetchServiceAccessInformation(
@@ -104,7 +105,10 @@ class ServiceAccessInformationController(
                     call: Call<ServiceAccessInformation?>,
                     response: Response<ServiceAccessInformation?>
                 ) {
-
+                    if (clientsSessionData[clientId]?.mediaDeliverySessionId != mediaDeliverySessionId) {
+                        continuation.resume(null)
+                        return
+                    }
                     processServiceAccessInformationResponse(
                         response,
                         clientId,
@@ -178,6 +182,7 @@ class ServiceAccessInformationController(
         sendingUid: Int,
         provisioningSessionId: String
     ) {
+        val mediaDeliverySessionId = clientsSessionData[sendingUid]?.mediaDeliverySessionId ?: return
         // Get MaxAge. If an age header is present, that value shall be subtracted from the value defined in max-age.
         var periodByMaxAgeHeader = getMaxAge(headers)
 
@@ -199,6 +204,7 @@ class ServiceAccessInformationController(
         timer.schedule(
             object : TimerTask() {
                 override fun run() {
+                    if (clientsSessionData[sendingUid]?.mediaDeliverySessionId != mediaDeliverySessionId) return
                     val call: Call<ServiceAccessInformation>? =
                         clientsSessionData[sendingUid]?.serviceAccessInformationSessionData?.api?.fetchServiceAccessInformation(
                             provisioningSessionId,
@@ -215,7 +221,7 @@ class ServiceAccessInformationController(
                             call: Call<ServiceAccessInformation?>,
                             response: Response<ServiceAccessInformation?>
                         ) {
-
+                            if (clientsSessionData[sendingUid]?.mediaDeliverySessionId != mediaDeliverySessionId) return
                             processServiceAccessInformationResponse(
                                 response,
                                 sendingUid,

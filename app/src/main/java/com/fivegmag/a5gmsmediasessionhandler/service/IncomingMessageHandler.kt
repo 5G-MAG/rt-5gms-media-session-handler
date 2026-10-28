@@ -168,9 +168,11 @@ class IncomingMessageHandler(
             val serviceAccessInformation = withContext(Dispatchers.IO) {
                 serviceAccessInformationController.updateServiceAccessInformation(
                     serviceListEntry,
-                    clientId
+                    clientId,
+                    mediaDeliverySessionId
                 )
             }
+            if (clientsSessionData[clientId]?.mediaDeliverySessionId != mediaDeliverySessionId) return@launch
 
             val finalEntryPoints = sessionController.getFinalEntryPoints(serviceListEntry, clientId)
 
