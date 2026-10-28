@@ -23,7 +23,6 @@ interface IConsumptionReportingApi {
     @POST("consumption-reporting/{provisioningSessionId}")
     fun sendConsumptionReport(
         @Path("provisioningSessionId") provisioningSessionId: String?,
-        @Body requestBody: RequestBody?,
-        @Header("CMCD-Session") cmcdSession: String
+        @Body requestBody: RequestBody?
     ): Call<Void>?
 }

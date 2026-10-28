@@ -65,8 +65,7 @@ class ConsumptionReportingController(
             val call: Call<Void>? =
                 clientSessionData.consumptionReportingSessionData.api!!.sendConsumptionReport(
                     provisioningSessionId,
-                    requestBody,
-                    formatCmcdSessionHeader(clientSessionData.mediaDeliverySessionId)
+                    requestBody
                 )
 
             call?.enqueue(object : retrofit2.Callback<Void?> {

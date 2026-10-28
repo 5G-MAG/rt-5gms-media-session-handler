@@ -15,8 +15,7 @@ interface IMetricsReportingApi {
     fun sendMetricsReport(
         @Path("provisioningSessionId") provisioningSessionId: String?,
         @Path("metricsReportingConfigurationId") metricsReportingConfigurationId: String?,
-        @Body requestBody: RequestBody?,
-        @Header("CMCD-Session") cmcdSession: String
+        @Body requestBody: RequestBody?
     ): Call<Void>?
 
 }
