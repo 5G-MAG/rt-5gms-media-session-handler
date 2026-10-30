@@ -56,8 +56,10 @@ class NetworkAssistanceController(
             { endpoints() },
             { session.domainNames.ifEmpty { listOfNotNull(hostOf(session.generalStatus?.mediaEntryPointUrl)) } },
             { dynamicPolicyController.serviceOf(clientId, session.mediaDeliverySessionId)?.activePolicyTemplateId },
+            { dynamicPolicyController.serviceOf(clientId, session.mediaDeliverySessionId)?.activeRequestedQoS },
             { event -> outgoingMessageHandler.sendNotification(event.name, event.payload.toBundle(), session.messenger) }
         )
+        dynamicPolicyController.serviceOf(clientId, session.mediaDeliverySessionId)?.onPolicyChanged = { scope.launch { created.policyChanged() } }
         created.subscribeTopic = { subscribeTopic(clientId, it) }
         created.unsubscribeTopic = { unsubscribeTopic(clientId, it) }
         session.networkAssistanceService = created

@@ -3,6 +3,8 @@ package com.fivegmag.a5gmsmediasessionhandler
 import com.fivegmag.a5gmscommonlibrary.helpers.RecommendationSources
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerBundleKeys as Keys
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerEvents
+import com.fivegmag.a5gmscommonlibrary.models.ClientPolicySpecification
+import com.fivegmag.a5gmsmediasessionhandler.controller.DynamicPolicyRequests
 import com.fivegmag.a5gmscommonlibrary.models.NetworkAssistanceConfiguration
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmsmediasessionhandler.controller.ClientEvent
@@ -28,6 +30,7 @@ class NetworkAssistanceServiceUnitTest {
     private val base = "provisioning-sessions/ps1/network-assistance-sessions/"
     private val sai = ServiceAccessInformation("ps1", null, null, null, null, networkAssistanceConfiguration = NetworkAssistanceConfiguration(arrayListOf(af.baseUrl)))
     private var template: String? = null
+    private var requestedQoS: ClientPolicySpecification? = null
     private var resolved = listOf("192.0.2.1", "192.0.2.2")
     private val rates = """{"maximumRequestedBitRate":"8 Mbps","minimumDesiredBitRate":"4 Mbps","minimumRequestedBitRate":"4 Mbps"}"""
 
@@ -39,7 +42,7 @@ class NetworkAssistanceServiceUnitTest {
     private fun service(): NetworkAssistanceService {
         val retrofit = Retrofit.Builder().baseUrl(af.baseUrl).addConverterFactory(GsonConverterFactory.create()).client(OkHttpClient()).build()
         val client = NetworkAssistanceM5Client(retrofit.create(INetworkAssistanceApi::class.java), null)
-        return NetworkAssistanceService("s1", { sai }, { client }, { endpoints }, { listOf("media.example") }, { template }, { events.add(it) })
+        return NetworkAssistanceService("s1", { sai }, { client }, { endpoints }, { listOf("media.example") }, { template }, { requestedQoS }, { events.add(it) })
     }
 
     private fun naJson(template: String? = null, component: String? = null) =
@@ -119,6 +122,52 @@ class NetworkAssistanceServiceUnitTest {
         s.requestBitRateRecommendation("video")
         assertEquals(listOf("POST", "GET", "PUT", "GET"), af.requests.map { it.method })
         assertEquals("pt2", JsonParser().parse(af.requests[2].body).asJsonObject["policyTemplateId"].asString)
+    }
+
+    // Clause 5.3.4.2: the QoS that the client asked for in the policy in force is the initial QoS of the session; without a policy it is not sent
+    @Test
+    fun theSessionRequestsTheQoSOfThePolicyInForce() {
+        af.answer("POST", base, MediaAfDouble.Response(201, naJson("pt1", "video")))
+        answerRecommendation()
+        template = "pt1"
+        requestedQoS = DynamicPolicyRequests.qosSpecification("3 Mbps", "1 Mbps")
+        service().requestBitRateRecommendation("video")
+        val body = JsonParser().parse(af.requests[0].body).asJsonObject
+        assertEquals("3 Mbps", body["requestedQoS"].asJsonObject["downlinkBitRates"].asJsonObject["maximumRequestedBitRate"].asString)
+        assertEquals("1 Mbps", body["requestedQoS"].asJsonObject["uplinkBitRates"].asJsonObject["maximumRequestedBitRate"].asString)
+    }
+
+    @Test
+    fun noPolicyInForceMeansNoRequestedQoS() {
+        af.answer("POST", base, MediaAfDouble.Response(201, naJson()))
+        answerRecommendation()
+        requestedQoS = DynamicPolicyRequests.qosSpecification("3 Mbps", "1 Mbps")
+        service().requestBitRateRecommendation("video")
+        assertEquals(false, JsonParser().parse(af.requests[0].body).asJsonObject.has("requestedQoS"))
+    }
+
+    // Clause 5.3.4.6: when the policy is deactivated the session is replaced so that it no longer cites it
+    @Test
+    fun deactivatingThePolicyReplacesTheSessionWithoutIt() {
+        af.answer("POST", base, MediaAfDouble.Response(201, naJson("pt1", "video")))
+        af.answer("PUT", base + "n1", MediaAfDouble.Response(200, naJson()))
+        answerRecommendation()
+        template = "pt1"
+        requestedQoS = DynamicPolicyRequests.qosSpecification("3 Mbps", "1 Mbps")
+        val s = service()
+        s.requestBitRateRecommendation("video")
+        template = null
+        requestedQoS = null
+        s.policyChanged()
+        assertEquals(listOf("POST", "GET", "PUT"), af.requests.map { it.method })
+        assertEquals(false, JsonParser().parse(af.requests[2].body).asJsonObject.has("policyTemplateId"))
+    }
+
+    @Test
+    fun aPolicyChangeWithoutASessionDoesNothing() {
+        template = "pt1"
+        service().policyChanged()
+        assertEquals(0, af.requests.size)
     }
 
     // Table 11.4.2-3

@@ -260,9 +260,12 @@ class DynamicPolicyServiceUnitTest {
         af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos")))
         af.answer("DELETE", base + "d1", MediaAfDouble.Response(204))
         val s = service()
+        var changed = 0
+        s.onPolicyChanged = { changed++ }
         s.activate("sop-qos", null, null, "6 Mbps", null)
         events.clear()
         assertTrue(s.deactivate())
+        assertEquals(1, changed)
         assertEquals(listOf(SessionHandlerEvents.DynamicPolicy.POLICY_DEACTIVATED), names())
         assertEquals("sop-qos", events[0].payload[Keys.SERVICE_OPERATION_POINT_REFERENCE])
         assertEquals("DELETE", af.requests.last().method)
@@ -273,7 +276,10 @@ class DynamicPolicyServiceUnitTest {
     @Test
     fun deactivateWithoutAPolicyIsFalse() {
         val s = service()
+        var changed = 0
+        s.onPolicyChanged = { changed++ }
         assertFalse(s.deactivate())
+        assertEquals(0, changed)
         assertTrue(events.isEmpty())
         assertEquals(false, s.deactivationReply(false)[Keys.SUCCEEDED])
     }
@@ -288,7 +294,10 @@ class DynamicPolicyServiceUnitTest {
         s.activate("sop-qos", null, null, "6 Mbps", null)
         af.answer("DELETE", base + "d1", MediaAfDouble.Response(500))
         events.clear()
+        var changed = 0
+        s.onPolicyChanged = { changed++ }
         assertFalse(s.deactivate())
+        assertEquals(0, changed)
         assertTrue(events.isEmpty())
         assertNotNull(s.status())
     }
@@ -385,7 +394,10 @@ class DynamicPolicyServiceUnitTest {
     fun aCancelledWindowIsErrorBackgroundDataTransferAndEndsThePolicy() {
         val topics = ArrayList<String>()
         val s = activated(topics)
+        var changed = 0
+        s.onPolicyChanged = { changed++ }
         s.onNotification(notified(policyJson("pt-qos")), "NOTIFICATION_REASON_BACKGROUND_DATA_TRANSFER_WINDOW_CANCELLATION")
+        assertEquals(1, changed)
         assertEquals(
             listOf(SessionHandlerEvents.Error.ERROR_BACKGROUND_DATA_TRANSFER, SessionHandlerEvents.DynamicPolicy.POLICY_DEACTIVATED),
             names()

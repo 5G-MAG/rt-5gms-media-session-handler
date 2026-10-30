@@ -3,6 +3,7 @@ package com.fivegmag.a5gmsmediasessionhandler.controller
 import com.fivegmag.a5gmscommonlibrary.helpers.RecommendationSources
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerBundleKeys as Keys
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerEvents
+import com.fivegmag.a5gmscommonlibrary.models.ClientPolicySpecification
 import com.fivegmag.a5gmscommonlibrary.models.NetworkAssistanceSession
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmsmediasessionhandler.network.M5Result
@@ -17,7 +18,7 @@ data class BitRateRecommendation(val recommendedDownlinkBitRate: String, val rec
  *
  * "If it has not already done so, the Media Session Handler shall first create a Network Assistance Session": the session is created at the first
  * request and kept for the media delivery session. It describes the application flow of the service component as the first address of the Media AS
- * (one session cites one packet filter, clause 5.3.4.2), and cites the Policy Template of the dynamic QoS policy in force. When that policy, or
+ * (one session cites one packet filter, clause 5.3.4.2), and cites the Policy Template of the dynamic QoS policy in force with the QoS that the client asked for in it, so that the limits of the session are those of the policy. When that policy, or
  * the component, differs from what the session cites, the session is replaced (clause 5.3.4.6).
  *
  * The source of every recommendation is the Media AF; recommendations from the UE modem are not obtained.
@@ -29,6 +30,7 @@ class NetworkAssistanceService(
     private val endpoints: () -> FlowEndpoints?,
     private val domainNames: () -> List<String>,
     private val activePolicyTemplateId: () -> String?,
+    private val activeRequestedQoS: () -> ClientPolicySpecification?,
     private val emit: (ClientEvent) -> Unit
 ) {
     var lastFailure: String? = null
@@ -39,6 +41,7 @@ class NetworkAssistanceService(
     var unsubscribeTopic: (String) -> Unit = {}
 
     private var session: NetworkAssistanceSession? = null
+    private var lastComponent: String? = null
     private var client: NetworkAssistanceM5Client? = null
     private var provisioningSessionId: String? = null
 
@@ -46,18 +49,20 @@ class NetworkAssistanceService(
 
     /** The Network Assistance Session for the component: created if there is none, replaced if what it cites has changed; null with lastFailure otherwise */
     private fun ensureSession(componentReference: String): NetworkAssistanceSession? {
+        lastComponent = componentReference
         val sai = serviceAccessInformation() ?: return fail("no Service Access Information")
         val m5 = clientFor(sai) ?: return fail("the Service Access Information has no Network Assistance server")
         val held = session
         val template = activePolicyTemplateId()
         val component = if (template != null) componentReference else null
-        if (held != null && held.policyTemplateId == template && held.componentReference == component) return held
+        val requested = if (template != null) activeRequestedQoS() else null
+        if (held != null && held.policyTemplateId == template && held.componentReference == component && held.requestedQoS == requested) return held
 
         val flowEndpoints = endpoints() ?: return fail("the network of the UE is not known")
         val ue = flowEndpoints.ueIpv4Address() ?: return fail("the UE has no IPv4 address")
         val flow = domainNames().flatMap { flowEndpoints.resolve(it) }.let { DynamicPolicyRequests.flowDescriptions(ue, it) }.firstOrNull()
             ?: return fail("the Media AS domain name(s) of the media delivery session do not resolve to an IPv4 address")
-        val request = DynamicPolicyRequests.networkAssistanceSession(mediaDeliverySessionId, flow, template, componentReference)
+        val request = DynamicPolicyRequests.networkAssistanceSession(mediaDeliverySessionId, flow, template, componentReference, requested)
         val result: M5Result<NetworkAssistanceSession> =
             if (held?.naSessionId != null) m5.replace(sai.provisioningSessionId, held.naSessionId!!, request)
             else m5.create(sai.provisioningSessionId, request)
@@ -68,6 +73,16 @@ class NetworkAssistanceService(
         session = result.resource ?: held
         if (held?.naSessionId == null) session?.naSessionId?.let(subscribeTopic)
         return session
+    }
+
+    /**
+     * The dynamic QoS policy in force has changed: a Network Assistance Session that exists is replaced so that it cites what is now in force
+     * (clause 5.3.4.6), and no longer holds the limits of a policy that has been deactivated. Nothing is done when there is no session.
+     */
+    @Synchronized
+    fun policyChanged() {
+        val component = lastComponent
+        if (session?.naSessionId != null && component != null) ensureSession(component)
     }
 
     private fun fail(reason: String): Nothing? {

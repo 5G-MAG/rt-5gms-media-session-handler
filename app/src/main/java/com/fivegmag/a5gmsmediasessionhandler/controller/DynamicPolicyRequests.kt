@@ -101,11 +101,13 @@ object DynamicPolicyRequests {
         mediaDeliverySessionId: String,
         flow: ApplicationFlowDescription,
         policyTemplateId: String?,
-        componentReference: String?
+        componentReference: String?,
+        requestedQoS: ClientPolicySpecification? = null
     ) = NetworkAssistanceSession(
         sessionId = mediaDeliverySessionId,
         applicationFlowDescription = flow,
         policyTemplateId = policyTemplateId,
-        componentReference = if (policyTemplateId != null) componentReference else null
+        componentReference = if (policyTemplateId != null) componentReference else null,
+        requestedQoS = if (policyTemplateId != null) requestedQoS else null
     )
 }

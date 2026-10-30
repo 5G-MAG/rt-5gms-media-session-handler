@@ -3,6 +3,7 @@ package com.fivegmag.a5gmsmediasessionhandler.controller
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerBundleKeys as Keys
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerEvents
 import com.fivegmag.a5gmscommonlibrary.models.BdtWindow
+import com.fivegmag.a5gmscommonlibrary.models.ClientPolicySpecification
 import com.fivegmag.a5gmscommonlibrary.models.DynamicPolicy
 import com.fivegmag.a5gmscommonlibrary.models.DynamicPolicyStatus
 import com.fivegmag.a5gmscommonlibrary.models.PolicyTemplateBinding
@@ -61,6 +62,9 @@ class DynamicPolicyService(
     var subscribeTopic: (String) -> Unit = {}
     var unsubscribeTopic: (String) -> Unit = {}
 
+    /** Called when a dynamic QoS policy has been put in force or taken out of force, so that a Network Assistance Session that cites it can follow (clause 5.3.4.6) */
+    var onPolicyChanged: () -> Unit = {}
+
     private var policy: DynamicPolicy? = null
     private var serviceOperationPointReference: String? = null
     private var provisioningSessionId: String? = null
@@ -73,6 +77,9 @@ class DynamicPolicyService(
 
     /** The Policy Template of the dynamic QoS policy in force, which a Network Assistance Session cites (clause 11.4.1.1); null when none is in force */
     val activePolicyTemplateId: String? @Synchronized get() = policy?.policyTemplateId
+
+    /** The QoS that the client asked for in the dynamic QoS policy in force, which a Network Assistance Session requests as its initial QoS (TS 26.510 V19.2.0 clause 11.4.1.1); null when none was asked for */
+    val activeRequestedQoS: ClientPolicySpecification? @Synchronized get() = policy?.applicationFlowBindings?.firstOrNull { it.qosSpecification != null }?.qosSpecification
 
     private fun fail(reason: String): Nothing? {
         lastFailure = reason
@@ -211,6 +218,7 @@ class DynamicPolicyService(
         unsubscribeTopic(id)
         clear()
         emit(ClientEvent.of(SessionHandlerEvents.DynamicPolicy.POLICY_DEACTIVATED, mediaDeliverySessionId, Keys.SERVICE_OPERATION_POINT_REFERENCE to reference))
+        onPolicyChanged()
         return true
     }
 
@@ -304,6 +312,7 @@ class DynamicPolicyService(
                 notified.dynamicPolicyId?.let(unsubscribeTopic)
                 clear()
                 emit(ClientEvent.of(SessionHandlerEvents.DynamicPolicy.POLICY_DEACTIVATED, mediaDeliverySessionId, Keys.SERVICE_OPERATION_POINT_REFERENCE to reference))
+                onPolicyChanged()
             }
         }
     }
