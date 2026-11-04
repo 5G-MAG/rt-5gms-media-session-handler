@@ -5,14 +5,11 @@ import android.os.Handler
 import android.os.Message
 import android.os.Messenger
 import android.util.Log
-import com.fivegmag.a5gmscommonlibrary.consumptionReporting.ConsumptionRequest
-import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
-import com.fivegmag.a5gmscommonlibrary.qoeMetricsReporting.QoeMetricsRequest
-import com.fivegmag.a5gmscommonlibrary.session.PlaybackRequest
 import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmscommonlibrary.helpers.Utils
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
+import com.fivegmag.a5gmscommonlibrary.session.PlaybackRequest
 import com.fivegmag.a5gmsmediasessionhandler.controller.ConsumptionReportingController
 import com.fivegmag.a5gmsmediasessionhandler.controller.QoeMetricsReportingController
 import com.fivegmag.a5gmsmediasessionhandler.controller.ServiceAccessInformationController
@@ -183,12 +180,14 @@ class IncomingMessageHandler(
                     )
                 val qoeMetricsRequests =
                     qoeMetricsReportingController.getQoeMetricsRequests(serviceAccessInformation)
+                val mediaStreamingSessionIdentifier = utils.generateUuidToHexBinary()
                 val playbackRequest =
-                    createPlaybackRequest(
+                    PlaybackRequest(
                         finalEntryPoints,
                         consumptionRequest,
                         qoeMetricsRequests,
-                        mediaDeliverySessionId
+                        mediaStreamingSessionIdentifier,
+                        mediaDeliverySessionId = mediaDeliverySessionId
                     )
                 val responseBundle = Bundle()
                 responseBundle.putParcelable("playbackRequest", playbackRequest)
@@ -247,18 +246,3 @@ class IncomingMessageHandler(
         serviceAccessInformationController.initialize(configurationProperties)
     }
 }
-
-/** Builds the playback request independently of Android message handling for unit tests. */
-internal fun createPlaybackRequest(
-    entryPoints: ArrayList<EntryPoint>,
-    consumptionRequest: ConsumptionRequest,
-    qoeMetricsRequests: ArrayList<QoeMetricsRequest>,
-    mediaDeliverySessionId: String
-): PlaybackRequest = PlaybackRequest(
-    entryPoints = entryPoints,
-    consumptionRequest = consumptionRequest,
-    qoeMetricsRequests = qoeMetricsRequests,
-    // QoE recordingSessionId is xs:hexBinary and cannot contain UUID hyphens.
-    mediaStreamingSessionIdentifier = Utils().generateUuidToHexBinary(),
-    mediaDeliverySessionId = mediaDeliverySessionId
-)
