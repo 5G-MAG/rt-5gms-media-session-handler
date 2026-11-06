@@ -24,6 +24,7 @@ class SessionController(
 
     override fun resetClientSession(clientId: Int) {
         clientsSessionData[clientId]?.initializedSession = false
+        clientsSessionData[clientId]?.mediaDeliverySessionId = null
     }
 
     fun getFinalEntryPoints(

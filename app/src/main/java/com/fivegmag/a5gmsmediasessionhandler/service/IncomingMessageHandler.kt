@@ -126,6 +126,7 @@ class IncomingMessageHandler(
     }
 
     private fun handlePlaybackStateEnded(clientId: Int) {
+        clientsSessionData[clientId]?.mediaDeliverySessionId = null
         consumptionReportingController.stopReportingTimer(
             clientId
         )
@@ -156,13 +157,19 @@ class IncomingMessageHandler(
         val responseMessenger = msg.replyTo
 
         resetClientSession(clientId)
+
+        val mediaDeliverySessionId = utils.generateUUID()
+        clientsSessionData[clientId]?.mediaDeliverySessionId = mediaDeliverySessionId
+
         CoroutineScope(Dispatchers.Main).launch {
             val serviceAccessInformation = withContext(Dispatchers.IO) {
                 serviceAccessInformationController.updateServiceAccessInformation(
                     serviceListEntry,
-                    clientId
+                    clientId,
+                    mediaDeliverySessionId
                 )
             }
+            if (clientsSessionData[clientId]?.mediaDeliverySessionId != mediaDeliverySessionId) return@launch
 
             val finalEntryPoints = sessionController.getFinalEntryPoints(serviceListEntry, clientId)
 
@@ -173,13 +180,13 @@ class IncomingMessageHandler(
                     )
                 val qoeMetricsRequests =
                     qoeMetricsReportingController.getQoeMetricsRequests(serviceAccessInformation)
-                val mediaStreamingSessionIdentifier = utils.generateUuidToHexBinary()
                 val playbackRequest =
                     PlaybackRequest(
-                        finalEntryPoints,
-                        consumptionRequest,
-                        qoeMetricsRequests,
-                        mediaStreamingSessionIdentifier
+                        entryPoints = finalEntryPoints,
+                        consumptionRequest = consumptionRequest,
+                        qoeMetricsRequests = qoeMetricsRequests,
+                        mediaStreamingSessionIdentifier = mediaDeliverySessionId,
+                        mediaDeliverySessionId = mediaDeliverySessionId
                     )
                 val responseBundle = Bundle()
                 responseBundle.putParcelable("playbackRequest", playbackRequest)
