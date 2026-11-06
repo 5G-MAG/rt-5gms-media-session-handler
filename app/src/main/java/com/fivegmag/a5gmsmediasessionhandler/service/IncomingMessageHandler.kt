@@ -180,13 +180,12 @@ class IncomingMessageHandler(
                     )
                 val qoeMetricsRequests =
                     qoeMetricsReportingController.getQoeMetricsRequests(serviceAccessInformation)
-                val mediaStreamingSessionIdentifier = utils.generateUuidToHexBinary()
                 val playbackRequest =
                     PlaybackRequest(
-                        finalEntryPoints,
-                        consumptionRequest,
-                        qoeMetricsRequests,
-                        mediaStreamingSessionIdentifier,
+                        entryPoints = finalEntryPoints,
+                        consumptionRequest = consumptionRequest,
+                        qoeMetricsRequests = qoeMetricsRequests,
+                        mediaStreamingSessionIdentifier = mediaDeliverySessionId,
                         mediaDeliverySessionId = mediaDeliverySessionId
                     )
                 val responseBundle = Bundle()
