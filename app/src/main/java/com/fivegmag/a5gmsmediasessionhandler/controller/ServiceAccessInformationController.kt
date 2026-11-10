@@ -10,9 +10,11 @@ import com.fivegmag.a5gmscommonlibrary.models.StreamingAccess
 import com.fivegmag.a5gmsmediasessionhandler.eventbus.ServiceAccessInformationUpdatedEvent
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import com.fivegmag.a5gmsmediasessionhandler.models.bearer
+import com.fivegmag.a5gmsmediasessionhandler.models.ServiceAccessInformationCacheKey
 import com.fivegmag.a5gmsmediasessionhandler.models.ServiceAccessInformationSessionData
 import com.fivegmag.a5gmsmediasessionhandler.network.IServiceAccessInformationApi
 import com.fivegmag.a5gmsmediasessionhandler.network.OAuthClientCredentials
+import com.google.gson.Gson
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Headers
 import org.greenrobot.eventbus.EventBus
@@ -46,6 +48,19 @@ class ServiceAccessInformationController(
     /** Called when the Media AF refuses the Media Session Handler's access token for want of scope (403 insufficient_scope), with the client identifier */
     var onAccessDenied: ((Int) -> Unit)? = null
     private var defaultServiceAccessInformationTimerInterval: Long = 0
+
+    /**
+     * The copy of the Service Access Information as the Media AF sent it (json, so that every media delivery session gets an object of its own),
+     * the headers of that response and the time (ms) until which it is fresh
+     */
+    private data class CachedServiceAccessInformation(val json: String, val headers: Headers, val freshUntilMs: Long)
+
+    // the fresh copies that a new media delivery session reuses (TS 26.510 V19.2.0 clause 5.4.2.1); read by the main and the network threads
+    private val cache = HashMap<ServiceAccessInformationCacheKey, CachedServiceAccessInformation>()
+    private val gson = Gson()
+
+    /** The time in ms; replaced by the tests */
+    internal var clock: () -> Long = { System.currentTimeMillis() }
 
     /** The client credentials of the Media Session Handler (TS 26.510 V19.2.0 clause 7.4.3); null when none are configured */
     var oAuthClient: OAuthClientCredentials? = null
@@ -106,15 +121,19 @@ class ServiceAccessInformationController(
         val bundle: Bundle = msg.data
         val clientId = ClientKey.of(msg)
         val m5BaseUrl: String? = bundle.getString("m5BaseUrl")
+        if (m5BaseUrl != null) setM5Endpoint(clientId, m5BaseUrl)
+    }
+
+    /** The Media AF that the Service Access Information of the client is acquired from; the implicit service launch takes it from the 3GPP Service URL (TS 26.512 V19.3.0 clause 4.8.3.2) */
+    fun setM5Endpoint(clientId: Int, m5BaseUrl: String) {
         Log.i(SessionController.TAG, "Setting M5 endpoint to $m5BaseUrl")
-        if (m5BaseUrl != null) {
-            resetAfterM5Change(clientId)
-            val retrofit = retrofitBuilder
-                .baseUrl(m5BaseUrl)
-                .build()
-            clientsSessionData[ClientKey.of(msg)]?.serviceAccessInformationSessionData?.api =
-                retrofit.create(IServiceAccessInformationApi::class.java)
-        }
+        resetAfterM5Change(clientId)
+        val retrofit = retrofitBuilder
+            .baseUrl(m5BaseUrl)
+            .build()
+        clientsSessionData[clientId]?.serviceAccessInformationSessionData?.api =
+            retrofit.create(IServiceAccessInformationApi::class.java)
+        clientsSessionData[clientId]?.serviceAccessInformationSessionData?.m5BaseUrl = m5BaseUrl
     }
 
     private fun resetAfterM5Change(clientId: Int) {
@@ -128,6 +147,7 @@ class ServiceAccessInformationController(
         clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation =
             null
         clientsSessionData[clientId]?.serviceAccessInformationSessionData?.responseHeaders = null
+        clientsSessionData[clientId]?.serviceAccessInformationSessionData?.cacheKey = null
     }
 
     fun stopUpdateTimer(
@@ -143,7 +163,12 @@ class ServiceAccessInformationController(
         serviceListEntry: ServiceListEntry?,
         clientId: Int
     ): ServiceAccessInformation? {
+        val data = clientsSessionData[clientId]?.serviceAccessInformationSessionData
+        val key = ServiceAccessInformationCacheKey(data?.m5BaseUrl, serviceListEntry!!.externalServiceId, clientsSessionData[clientId]?.accessToken)
+        data?.cacheKey = key
         ensureAccessToken(clientId)
+        // clause 5.4.2.1: a fresh copy that is cached is used; only without one is the Service Access Information acquired from the Media AF
+        useFreshCopy(clientId, key)?.let { return it }
         val tokenRejected = BooleanArray(1)
         val result = requestServiceAccessInformation(serviceListEntry, clientId, tokenRejected)
         // the token is no longer valid: one new token (clause 7.4.3 of TS 26.510), one retry
@@ -220,6 +245,8 @@ class ServiceAccessInformationController(
 
         // Save the ServiceAccessInformation if it has changed
         val resource: ServiceAccessInformation? = response.body()
+        // the copy for the cache is taken before the media delivery session adds its own to the resource (the manifest configurations)
+        val received: String? = if (resource != null && response.code() == 200) gson.toJson(resource) else null
         if (resource != null && response.code() != 304 && utils.hasResponseChanged(
                 headers,
                 clientsSessionData[clientId]?.serviceAccessInformationSessionData?.responseHeaders
@@ -237,6 +264,45 @@ class ServiceAccessInformationController(
 
         // Save current headers
         clientsSessionData[clientId]?.serviceAccessInformationSessionData?.responseHeaders = headers
+
+        updateCache(clientsSessionData[clientId]?.serviceAccessInformationSessionData?.cacheKey, response.code(), received, headers)
+    }
+
+    /** What the Media AF answered becomes the cached copy (200), stays it for a further time-to-live (304) or is dropped (any other answer) */
+    private fun updateCache(key: ServiceAccessInformationCacheKey?, code: Int, received: String?, headers: Headers) {
+        if (key == null) return
+        synchronized(cache) {
+            val now = clock()
+            val cached = cache[key]
+            if (received != null) {
+                cache[key] = CachedServiceAccessInformation(received, headers, now + getFreshnessSeconds(headers, now) * 1000)
+            } else if (code == 304) {
+                if (cached != null && cached.headers["etag"] == headers["etag"]) {
+                    cache[key] = cached.copy(headers = headers, freshUntilMs = now + getFreshnessSeconds(headers, now) * 1000)
+                }
+            } else {
+                cache.remove(key)
+            }
+        }
+    }
+
+    /**
+     * The cached copy for the media delivery session when it is still fresh (TS 26.510 V19.2.0 clause 5.4.2.1); null when there is none or when
+     * it is not. The session then checks for an update as it would after a fetch, when the time-to-live of the copy has elapsed (clause 7.1.4.3).
+     */
+    private fun useFreshCopy(clientId: Int, key: ServiceAccessInformationCacheKey): ServiceAccessInformation? {
+        val now = clock()
+        val cached = synchronized(cache) { cache[key] }?.takeIf { it.freshUntilMs > now } ?: return null
+        val data = clientsSessionData[clientId]?.serviceAccessInformationSessionData ?: return null
+        adoptServiceAccessInformation(clientId, gson.fromJson(cached.json, ServiceAccessInformation::class.java), data.serviceAccessInformation)
+        data.responseHeaders = cached.headers
+        startServiceAccessInformationUpdateTimer(
+            cached.headers,
+            clientId,
+            key.externalServiceId,
+            remainingSeconds = maxOf(minimumRefreshSeconds, (cached.freshUntilMs - now + 999) / 1000)
+        )
+        return data.serviceAccessInformation
     }
 
     private fun adoptServiceAccessInformation(
@@ -273,6 +339,8 @@ class ServiceAccessInformationController(
         val previous = clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation
         Log.d(TAG, "Notified Service Access Information for client $clientId: held=${previous != null}, differs=${previous != resource}")
         if (previous != null && previous != resource) {
+            // the copy that the Media AF made obsolete is no longer reused by a new media delivery session
+            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.cacheKey?.let { synchronized(cache) { cache.remove(it) } }
             adoptServiceAccessInformation(clientId, resource, previous)
         }
     }
@@ -281,18 +349,11 @@ class ServiceAccessInformationController(
         headers: Headers,
         sendingUid: Int,
         provisioningSessionId: String,
-        immediately: Boolean = false
+        immediately: Boolean = false,
+        remainingSeconds: Long? = null
     ) {
-        // Get MaxAge. If an age header is present, that value shall be subtracted from the value defined in max-age.
-        var periodByMaxAgeHeader = getMaxAge(headers)
-
-        val ageHeader = headers.get("Age")
-        if (null != ageHeader && -1 != periodByMaxAgeHeader.toInt()) {
-            periodByMaxAgeHeader -= ageHeader.toLong()
-        }
-
-        val periodByExpiresHeader = getPeriodFromExpiresHeader(headers)
-        val periodTimerInSeconds: Long = getRefreshTimerValue(
+        val (periodByMaxAgeHeader, periodByExpiresHeader) = headerPeriods(headers, System.currentTimeMillis())
+        val periodTimerInSeconds: Long = remainingSeconds ?: getRefreshTimerValue(
             periodByMaxAgeHeader,
             periodByExpiresHeader,
             defaultServiceAccessInformationTimerInterval
@@ -350,6 +411,30 @@ class ServiceAccessInformationController(
             },
             if (immediately) 0 else periodTimerInSeconds * 1000
         )
+    }
+
+    /** The periods in seconds of the max-age less the Age header field (if one is present, its value shall be subtracted) and of the Expires header field; -1 for one that is absent */
+    private fun headerPeriods(headers: Headers, now: Long): Pair<Long, Long> {
+        var periodByMaxAgeHeader = getMaxAge(headers)
+
+        val ageHeader = headers.get("Age")
+        if (null != ageHeader && -1 != periodByMaxAgeHeader.toInt()) {
+            periodByMaxAgeHeader = maxOf(0L, periodByMaxAgeHeader - ageHeader.toLong())
+        }
+
+        return Pair(periodByMaxAgeHeader, getPeriodFromExpiresHeader(headers, now))
+    }
+
+    /**
+     * The seconds for which a response can be used without asking the Media AF again (TS 26.510 V19.2.0 clause 7.1.4.2: the max-age of Cache-Control
+     * is the time-to-live of the resource; RFC 9111 clause 4.2): the smaller of the max-age less Age and the time to Expires; the refresh period of
+     * config.properties.xml when the response has neither; none for no-cache and no-store
+     */
+    internal fun getFreshnessSeconds(headers: Headers, now: Long = clock()): Long {
+        val directives = headers.get("cache-control")?.split(',')?.map { it.trim().lowercase() } ?: emptyList()
+        if (directives.any { it.startsWith("no-cache") || it == "no-store" }) return 0L
+        val (periodByMaxAgeHeader, periodByExpiresHeader) = headerPeriods(headers, now)
+        return computeRefreshTimerValue(periodByMaxAgeHeader, periodByExpiresHeader, defaultServiceAccessInformationTimerInterval)
     }
 
     /** The shortest refresh period in seconds (config.properties.xml, default 1): a max-age of 0 would make the check loop without pause */
@@ -420,5 +505,6 @@ class ServiceAccessInformationController(
         for (clientId in clientsSessionData.keys) {
             resetClientSession(clientId)
         }
+        synchronized(cache) { cache.clear() }
     }
 }

@@ -98,4 +98,17 @@ data class ServiceAccessInformationSessionData(
     var api: IServiceAccessInformationApi? = null,
     var responseHeaders: Headers? = null,
     var requestTimer: Timer? = null,
+    // the M5 endpoint of the Media AF, and the entry of the cache of Service Access Information that this media delivery session reads and refreshes
+    var m5BaseUrl: String? = null,
+    var cacheKey: ServiceAccessInformationCacheKey? = null,
+)
+
+/**
+ * What identifies a copy of the Service Access Information in the cache of the Media Session Handler: the Media AF, the external service identifier
+ * (TS 26.510 V19.2.0 table 11.2.1-1) and the access token that the application gave, since the Media AF authorises the answer with it
+ */
+data class ServiceAccessInformationCacheKey(
+    val m5BaseUrl: String?,
+    val externalServiceId: String,
+    val accessToken: String?
 )

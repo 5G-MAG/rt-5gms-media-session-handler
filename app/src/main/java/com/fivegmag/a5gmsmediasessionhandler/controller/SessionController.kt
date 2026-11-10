@@ -2,6 +2,7 @@ package com.fivegmag.a5gmsmediasessionhandler.controller
 
 import android.os.Message
 import com.fivegmag.a5gmscommonlibrary.helpers.ContentTypes
+import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
@@ -46,6 +47,7 @@ class SessionController(
 
     override fun resetClientSession(clientId: Int) {
         clientsSessionData[clientId]?.initializedSession = false
+        clientsSessionData[clientId]?.playbackState = PlayerStates.UNKNOWN
         clientsSessionData[clientId]?.mediaDeliverySessionId = UUID.randomUUID().toString()
     }
 

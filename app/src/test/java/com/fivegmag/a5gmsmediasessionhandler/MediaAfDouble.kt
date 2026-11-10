@@ -11,7 +11,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  */
 class MediaAfDouble : AutoCloseable {
     data class Request(val method: String, val path: String, val authorization: String?, val contentType: String?, val body: String)
-    data class Response(val code: Int, val body: String? = null, val location: String? = null, val wwwAuthenticate: String? = null, val retryAfter: String? = null)
+    data class Response(val code: Int, val body: String? = null, val location: String? = null, val wwwAuthenticate: String? = null, val retryAfter: String? = null, val headers: Map<String, String> = emptyMap())
 
     val requests = CopyOnWriteArrayList<Request>()
     private val responses = HashMap<String, Response>()
@@ -46,6 +46,7 @@ class MediaAfDouble : AutoCloseable {
         response.location?.let { exchange.responseHeaders.add("Location", it) }
         response.wwwAuthenticate?.let { exchange.responseHeaders.add("WWW-Authenticate", it) }
         response.retryAfter?.let { exchange.responseHeaders.add("Retry-After", it) }
+        response.headers.forEach { (name, value) -> exchange.responseHeaders.add(name, value) }
         val bytes = (response.body ?: "").toByteArray()
         if (response.body != null) exchange.responseHeaders.add("Content-Type", "application/json")
         exchange.sendResponseHeaders(response.code, if (bytes.isEmpty() || response.code == 204) -1 else bytes.size.toLong())

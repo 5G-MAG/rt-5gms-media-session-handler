@@ -23,6 +23,8 @@ import com.fivegmag.a5gmsmediasessionhandler.controller.ManifestMetricsConfigura
 import com.fivegmag.a5gmsmediasessionhandler.controller.AndroidFlowEndpoints
 import com.fivegmag.a5gmsmediasessionhandler.controller.ConsumptionReportingController
 import com.fivegmag.a5gmsmediasessionhandler.controller.DynamicPolicyController
+import com.fivegmag.a5gmsmediasessionhandler.controller.ImplicitLaunch
+import com.fivegmag.a5gmsmediasessionhandler.controller.InactivityWatch
 import com.fivegmag.a5gmsmediasessionhandler.controller.QoeMetricsReportingController
 import com.fivegmag.a5gmsmediasessionhandler.controller.NetworkAssistanceController
 import com.fivegmag.a5gmsmediasessionhandler.controller.NotificationChannelController
@@ -39,6 +41,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.time.OffsetDateTime
 import java.util.Properties
 
 class IncomingMessageHandler(
@@ -69,6 +72,10 @@ class IncomingMessageHandler(
     private lateinit var networkAssistanceController: NetworkAssistanceController
     private lateinit var sessionController: SessionController
     private lateinit var notificationChannelController: NotificationChannelController
+    // the clients whose media delivery session was launched implicitly; the session ends when the client is inactive (clause 5.4.2.2)
+    private val inactivityWatch = InactivityWatch(ImplicitLaunch.INACTIVITY_PERIOD_MS) { clientId ->
+        CoroutineScope(Dispatchers.Main).launch { handleInactiveClient(clientId) }
+    }
     private val incomingMessenger = Messenger(IncomingHandler())
 
     inner class IncomingHandler(
@@ -76,6 +83,7 @@ class IncomingMessageHandler(
 
         override fun handleMessage(msg: Message) {
             try {
+                inactivityWatch.touch(ClientKey.of(msg))
                 when (msg.what) {
                     SessionHandlerMessageTypes.REGISTER_CLIENT -> handleRegisterClient(msg)
 
@@ -102,6 +110,8 @@ class IncomingMessageHandler(
                     )
 
                     SessionHandlerMessageTypes.GET_SESSION_STATUS -> handleGetSessionStatus(msg)
+
+                    SessionHandlerMessageTypes.LAUNCH_SERVICE_URL -> handleLaunchServiceUrl(msg)
 
                     SessionHandlerMessageTypes.GET_SERVICE_OPERATION_POINTS -> dynamicPolicyController.handleGetServiceOperationPoints(msg)
 
@@ -159,9 +169,11 @@ class IncomingMessageHandler(
         consumptionReportingController.resetClientSession(clientId)
         qoeMetricsReportingController.resetClientSession(clientId)
         notificationChannelController.disconnect(clientId)
+        inactivityWatch.resetClientSession(clientId)
     }
 
     fun reset() {
+        inactivityWatch.reset()
         notificationChannelController.reset()
         networkAssistanceController.reset()
         dynamicPolicyController.reset()
@@ -174,6 +186,8 @@ class IncomingMessageHandler(
     private fun handleStatusMessage(msg: Message) {
         val clientId = ClientKey.of(msg)
         val bundle: Bundle = msg.data as Bundle
+        // the state tells whether the Media Stream Handler is consuming media, which an implicitly launched session needs to know (clause 5.4.2.2)
+        clientsSessionData[clientId]?.playbackState = bundle.getString("playbackState", "")
 
         when (bundle.getString("playbackState", "")) {
             PlayerStates.ENDED -> {
@@ -245,7 +259,8 @@ class IncomingMessageHandler(
         clientId: Int,
         responseMessenger: Messenger?,
         accessToken: String? = null,
-        domainNames: List<String> = emptyList()
+        domainNames: List<String> = emptyList(),
+        launch: ImplicitLaunch? = null
     ): Boolean {
         resetClientSession(clientId)
         clientsSessionData[clientId]?.accessToken = accessToken
@@ -262,16 +277,23 @@ class IncomingMessageHandler(
                     clientId
                 )
             }
-            val finalEntryPoints = sessionController.getFinalEntryPoints(serviceListEntry, clientId)
+            // clause 4.8.3.3 items 1 and 2: the Media Entry Point of an implicit launch is the one that media-entry-point names or one that passes the filters
+            val finalEntryPoints = sessionController.getFinalEntryPoints(serviceListEntry, clientId)?.let { launch?.select(it) ?: it }
 
-            // clause 11.2.2.1: the session is ACTIVE when the Service Access Information was acquired and the Media Access Function was
-            // initialised if there is a Media Entry Point; without one there is nothing to hand over
-            if (serviceAccessInformation != null && (finalEntryPoints == null || finalEntryPoints.isEmpty())) {
+            if (serviceAccessInformation != null && launch?.refuses(serviceAccessInformation, finalEntryPoints.orEmpty(), OffsetDateTime.now()) == true) {
+                // clause 4.8.3.3 items 2 and 3: no Media Stream Handler is instantiated; the status for the application is in the launch
+                Log.w(TAG, "The implicit launch finds nothing to start in the Service Access Information")
+            } else if (serviceAccessInformation != null && (finalEntryPoints == null || finalEntryPoints.isEmpty())) {
+                // clause 11.2.2.1: the session is ACTIVE when the Service Access Information was acquired and the Media Access Function was
+                // initialised if there is a Media Entry Point; without one there is nothing to hand over
                 serviceAccessInformation.notificationURL?.let {
                     notificationChannelController.connect(clientId, it, serviceListEntry.externalServiceId)
                 }
                 succeeded = true
-            } else if (serviceAccessInformation != null && finalEntryPoints != null) {
+            } else if (serviceAccessInformation != null && finalEntryPoints != null &&
+                // clause 4.8.3.3 item 3: the Dynamic Policy of an implicit launch is instantiated before the Media Stream Handler
+                (launch == null || instantiateLaunchPolicy(clientId, launch, serviceListEntry, finalEntryPoints[0]))
+            ) {
                 mediaEntryPointUrl = finalEntryPoints[0].locator
                 // clause 4.9.2 of TS 26.512: a client metrics configuration in the manifest is used for the session
                 val manifestConfigurations = withContext(Dispatchers.IO) { fetchManifestMetricsConfigurations(finalEntryPoints[0], mediaDeliverySessionId) }
@@ -299,7 +321,9 @@ class IncomingMessageHandler(
                         qoeMetricsRequests,
                         mediaStreamingSessionIdentifier,
                         mediaDeliverySessionId,
-                        serviceListEntry.name.ifEmpty { null }
+                        serviceListEntry.name.ifEmpty { null },
+                        launch?.deliveryProtocols,
+                        launch?.multipathMode
                     )
                 val responseBundle = Bundle()
                 responseBundle.putParcelable("playbackRequest", playbackRequest)
@@ -395,7 +419,19 @@ class IncomingMessageHandler(
         val clientId = ClientKey.of(msg)
         val responseMessenger = msg.replyTo
         val serviceId = bundle.getString(SessionHandlerBundleKeys.SERVICE_ID)
-            ?: throw java.lang.Exception("createMediaDeliverySession: serviceId is mandatory")
+        // clause 5.4.2.1: an external service identifier shall be provided; without one no media delivery session is created and the Media AF
+        // is not asked. The text defines no error code for it: the reply says that the creation did not succeed, with no media delivery session identifier
+        if (serviceId.isNullOrBlank()) {
+            Log.w(TAG, "createMediaDeliverySession: serviceId is mandatory")
+            val refusal = Bundle()
+            refusal.putBoolean("succeeded", false)
+            outgoingMessageHandler.sendMessage(
+                SessionHandlerMessageTypes.CREATE_MEDIA_DELIVERY_SESSION_REPLY,
+                refusal,
+                responseMessenger
+            )
+            return
+        }
         val contentId = bundle.getString(SessionHandlerBundleKeys.CONTENT_ID)
         val entryPoint = bundle.getString(SessionHandlerBundleKeys.ENTRY_POINT)
         // the method gives only the URL of the Media Entry Point: its media type is taken from the name of the resource
@@ -433,6 +469,73 @@ class IncomingMessageHandler(
         }
     }
 
+    /**
+     * Implicit service launch (TS 26.510 V19.2.0 clause 5.4.2.2, clause 6; TS 26.512 V19.3.0 clause 4.8.3) with the 3GPP Service URL of the message.
+     * The media delivery session is the one of the sending client, as with createMediaDeliverySession(); the sender is also the Media Stream
+     * Handler that the Media Session Handler invokes with the Media Entry Point. The reply carries only the HTTP status (clause 4.8.3.4); the
+     * media delivery session identifier is not returned (clause 5.4.2.2). The entry by an intent filter (clause 4.8.3.1) is not part of this class.
+     */
+    private fun handleLaunchServiceUrl(msg: Message) {
+        val clientId = ClientKey.of(msg)
+        val responseMessenger = msg.replyTo
+        val prepared = ImplicitLaunch.prepare(msg.data.getString(SessionHandlerBundleKeys.SERVICE_URL) ?: "")
+        val launch = prepared.launch
+        if (launch == null || clientsSessionData[clientId] == null) {
+            if (launch != null) Log.w(TAG, "launchServiceUrl: the client has not registered")
+            replyToLaunch(if (launch == null) prepared.status else ImplicitLaunch.STATUS_BAD_REQUEST, responseMessenger)
+            return
+        }
+        // clause 4.8.3.2: the Media AF is the one that af-host-address (or the default host name) names
+        serviceAccessInformationController.setM5Endpoint(clientId, launch.m5BaseUrl)
+        val entryPoints = launch.mediaEntryPoint?.let { arrayListOf(EntryPoint(it, contentTypeOfUrl(it), null)) }
+        val serviceListEntry = ServiceListEntry(launch.externalServiceId, launch.contentId ?: "", entryPoints)
+
+        CoroutineScope(Dispatchers.Main).launch {
+            val succeeded = startMediaDeliverySession(serviceListEntry, clientId, responseMessenger, launch.accessToken, emptyList(), launch)
+            val session = clientsSessionData[clientId]
+            // a launch that fails leaves nothing running; the status is the answer (clause 4.8.3.4)
+            if (!succeeded && session != null) terminateMediaDeliverySession(clientId, session, session.mediaDeliverySessionId, null)
+            if (succeeded) inactivityWatch.watch(clientId)
+            replyToLaunch(if (succeeded) ImplicitLaunch.STATUS_OK else launch.failureStatus, responseMessenger)
+        }
+    }
+
+    private fun replyToLaunch(status: Int, messenger: Messenger?) {
+        outgoingMessageHandler.sendMessage(
+            SessionHandlerMessageTypes.LAUNCH_SERVICE_URL_REPLY,
+            mapOf<String, Any?>(SessionHandlerBundleKeys.HTTP_RESPONSE_CODE to status).toBundle(),
+            messenger
+        )
+    }
+
+    /**
+     * Clause 4.8.3.3 item 3: the Dynamic Policy of the service-operation-point (with the estimated-volume, a Background Data Transfer policy) by the
+     * procedures of clause 4.7.3, which DynamicPolicyService carries out. It follows the Media Entry Point, whose Media AS the policy applies to.
+     * Returns whether the Media Stream Handler may be instantiated; no service-operation-point is nothing to do.
+     */
+    private suspend fun instantiateLaunchPolicy(clientId: Int, launch: ImplicitLaunch, serviceListEntry: ServiceListEntry, entryPoint: EntryPoint): Boolean {
+        val reference = launch.serviceOperationPoint ?: return true
+        val session = clientsSessionData[clientId] ?: return false
+        // the service of the media delivery session is found by the general status, which holds the Media Entry Point until the session has started
+        session.generalStatus = GeneralSessionStatus.after(serviceListEntry.name.ifEmpty { serviceListEntry.externalServiceId }, entryPoint.locator, true)
+        val service = dynamicPolicyController.serviceOf(clientId, session.mediaDeliverySessionId) ?: return false
+        val activated = withContext(Dispatchers.IO) { service.activate(reference, launch.estimatedVolume) } != null
+        if (!activated) Log.w(TAG, "The Dynamic Policy of the implicit launch was not instantiated: ${service.lastFailure}")
+        return activated
+    }
+
+    /** The client of an implicitly launched media delivery session was inactive for the period (clause 5.4.2.2): the session ends unless media is being consumed */
+    private fun handleInactiveClient(clientId: Int) {
+        val session = clientsSessionData[clientId] ?: return
+        if (session.generalStatus == null) return
+        if (ImplicitLaunch.isConsuming(session.playbackState)) {
+            inactivityWatch.watch(clientId)
+            return
+        }
+        Log.i(TAG, "Client $clientId was inactive: the implicitly launched media delivery session ends")
+        terminateMediaDeliverySession(clientId, session, session.mediaDeliverySessionId, session.messenger)
+    }
+
     /** destroyMediaDeliverySession() (table 11.2.2.2-1): release the session and send SESSION_HANDLING_TERMINATED */
     private fun handleDestroyMediaDeliverySession(msg: Message) {
         val clientId = ClientKey.of(msg)
@@ -442,17 +545,23 @@ class IncomingMessageHandler(
             Log.w(TAG, "destroyMediaDeliverySession: no media delivery session [$identifier]")
             return
         }
+        terminateMediaDeliverySession(clientId, session, identifier, msg.replyTo ?: session.messenger)
+    }
+
+    /** Release the media delivery session of the client; SESSION_HANDLING_TERMINATED goes to the messenger if there is one */
+    private fun terminateMediaDeliverySession(clientId: Int, session: ClientSessionData, identifier: String?, notifyTo: Messenger?) {
         val mediaEntryPointUrl = session.generalStatus?.mediaEntryPointUrl
         handlePlaybackStateEnded(clientId)
         resetClientSession(clientId)
         session.generalStatus = null
+        if (notifyTo == null) return
         val notification = Bundle()
         notification.putString(SessionHandlerBundleKeys.MEDIA_DELIVERY_SESSION_IDENTIFIER, identifier)
         notification.putString(SessionHandlerBundleKeys.MEDIA_ENTRY_POINT_URL, mediaEntryPointUrl)
         outgoingMessageHandler.sendNotification(
             SessionHandlerEvents.Notification.SESSION_HANDLING_TERMINATED,
             notification,
-            msg.replyTo ?: session.messenger
+            notifyTo
         )
     }
 
