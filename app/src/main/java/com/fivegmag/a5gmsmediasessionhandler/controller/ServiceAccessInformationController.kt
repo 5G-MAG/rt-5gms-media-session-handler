@@ -99,8 +99,12 @@ class ServiceAccessInformationController(
                 null,
                 null
             )
+        if (call == null) {
+            Log.w(TAG, "No SAI API call available; using entry points from the ServiceListEntry")
+            return null
+        }
         return suspendCancellableCoroutine { continuation ->
-            call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
+            call.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
 
                 override fun onResponse(
                     call: Call<ServiceAccessInformation?>,
@@ -131,8 +135,7 @@ class ServiceAccessInformationController(
 
             // Cancel the network request if the coroutine is cancelled
             continuation.invokeOnCancellation {
-                call?.cancel()
-                continuation.resume(null)
+                call.cancel()
             }
 
         }
