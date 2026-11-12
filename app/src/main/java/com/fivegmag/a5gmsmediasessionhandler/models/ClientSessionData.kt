@@ -17,7 +17,8 @@ data class ClientSessionData(
     var qoeMetricsReportingSessionData: HashMap<String, QoeMetricsReportingSessionDataEntry> = HashMap(),
     var consumptionReportingSessionData: ConsumptionReportingSessionData = ConsumptionReportingSessionData(),
     var serviceAccessInformationSessionData: ServiceAccessInformationSessionData = ServiceAccessInformationSessionData(),
-    var mediaDeliverySessionId: String? = null
+    var mediaDeliverySessionId: String? = null,
+    var playbackId: String? = null
 )
 
 data class QoeMetricsReportingSessionDataEntry(

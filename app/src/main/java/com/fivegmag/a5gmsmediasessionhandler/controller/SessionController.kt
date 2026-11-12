@@ -5,6 +5,7 @@ import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
+import java.util.UUID
 
 class SessionController(
     private val clientsSessionData: HashMap<Int, ClientSessionData>,
@@ -24,8 +25,23 @@ class SessionController(
     }
 
     override fun resetClientSession(clientId: Int) {
-        clientsSessionData[clientId]?.initializedSession = false
+        resetPlayback(clientId)
         clientsSessionData[clientId]?.mediaDeliverySessionId = null
+        clientsSessionData[clientId]?.playbackId = null
+    }
+
+    fun resetPlayback(clientId: Int) {
+        clientsSessionData[clientId]?.initializedSession = false
+    }
+
+    fun startMediaDeliverySession(clientId: Int, newMediaDeliverySession: Boolean): String {
+        val client = requireNotNull(clientsSessionData[clientId]) { "Client is not registered: $clientId" }
+        if (!newMediaDeliverySession) {
+            return requireNotNull(client.mediaDeliverySessionId) {
+                "No active media delivery session to continue for client: $clientId"
+            }
+        }
+        return UUID.randomUUID().toString().also { client.mediaDeliverySessionId = it }
     }
 
     fun getFinalEntryPoints(
