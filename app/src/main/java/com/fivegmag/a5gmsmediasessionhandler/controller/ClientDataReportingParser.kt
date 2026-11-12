@@ -3,6 +3,9 @@ package com.fivegmag.a5gmsmediasessionhandler.controller
 import com.fivegmag.a5gmscommonlibrary.helpers.ClientDataReportingModes
 import com.fivegmag.a5gmscommonlibrary.helpers.CmcdSchemes
 import com.fivegmag.a5gmscommonlibrary.session.ClientDataReportingEntry
+import com.fivegmag.a5gmscommonlibrary.session.MediaPlayerEntryContext
+import com.fivegmag.a5gmscommonlibrary.session.ServiceLocationUrls
+import android.util.Log
 import org.w3c.dom.Element
 import java.io.ByteArrayInputStream
 import javax.xml.parsers.DocumentBuilderFactory
@@ -15,13 +18,15 @@ import javax.xml.parsers.DocumentBuilderFactory
  * urn:mpeg:dash:cta-5004:2023) with @serviceLocations and @adaptationSets, and CMCDParameters has @version, @mode (default query),
  * @includeInRequests (default segment), @keys (mandatory), @contentID and @sessionID (table K.17 and the schema; table K.8 spells the last two
  * contentId and sessionID, the schema is followed).
- * - A ServiceDescription is selected when it has no Scope (table K.10); one with a Scope is not, because the only scope that this reads is the
- *   one of the activation by an Event (K.6), which is not implemented, so such a description is never applied. A Period that carries
- *   ServiceDescription elements overrides those of the MPD (table 4, Period.ServiceDescription): this is applied for an MPD with one Period; with
- *   several Periods and one of them carrying descriptions none is applied, because the Period of a request is not known to the player.
+ * - A ServiceDescription is selected when it has no Scope (table K.10). One with the Scope urn:mpeg:dash:event:service-description:2024 is read too
+ *   (K.6) but marked activatedByEvent: the player applies it only while an Event activates it. The Event can name it by its @id, or carry it as a
+ *   ServiceDescription child (K.6.2, K.6.4), which is read the same way. A ServiceDescription with any other Scope is never applied. A Period that
+ *   carries ServiceDescription elements overrides those of the MPD (table 4, Period.ServiceDescription): this is applied for an MPD with one Period;
+ *   with several Periods and one of them carrying descriptions none is applied, because the Period of a request is not known to the player.
  * - serviceLocations names BaseURL@serviceLocation labels (clause 5.6.6) of the BaseURL elements at any level, resolved against the URL of the MPD.
- * - adaptationSets names AdaptationSet@id values. The player cannot tell the AdaptationSet of a request, so the filter is only evaluated when it
- *   names every AdaptationSet of the MPD (then it restricts nothing); otherwise the element is left out.
+ * - adaptationSets names AdaptationSet@id values. The entry carries them with the AdaptationSet ids of the MPD (MediaPlayerEntryContext): the player
+ *   cannot tell the AdaptationSet of a request, so it evaluates the filter only when it names every AdaptationSet (then it restricts nothing) and
+ *   leaves the entry out otherwise. The settings API of the application (clause 13.2.4) can replace the filter, which is why it is not decided here.
  * - includeInRequests holds request types (table I.4); a type that is not known is dropped. The request types are given to the player as the
  *   CMCD object types (ot) of the requests they cover: segment a, v, av, c and tt; init i; mpd m; * every request. The other known types cover no
  *   request that the player marks with an object type.
@@ -30,6 +35,10 @@ import javax.xml.parsers.DocumentBuilderFactory
  */
 object ClientDataReportingParser {
     const val SCHEME = "urn:mpeg:dash:cta-5004:2023"
+    private const val TAG = "ClientDataReporting"
+    const val EVENT_SCHEME = "urn:mpeg:dash:event:service-description:2024"
+    // the filters of table K.7 are attributes of ClientDataReporting (tables K.16 and K.17, the schema), not of CMCDParameters
+    private val FILTER_ATTRIBUTES = listOf("serviceLocations", "adaptationSets")
     private const val MAX_IDENTIFIER_LENGTH = 64
 
     // the object types (CTA-5004 table 2, key ot) of the request types of table I.4 that the player can tell apart
@@ -38,9 +47,15 @@ object ClientDataReportingParser {
     private const val ALL_REQUEST_TYPES = "*"
     private val CMCD_KEYS: Set<String> = CmcdSchemes.KEYS.values.flatten().toSet()
 
+    /** The entries of the manifest at [mpdUrl] and what the player needs of the manifest to apply the settings of the application to them */
+    class Result(val entries: List<ClientDataReportingEntry>, val context: MediaPlayerEntryContext?)
+
     /** The entries of the manifest at [mpdUrl] (which resolves relative BaseURL elements); an unreadable manifest has none */
-    fun parse(mpd: String, mpdUrl: String): List<ClientDataReportingEntry> {
+    fun parse(mpd: String, mpdUrl: String): List<ClientDataReportingEntry> = parseAll(mpd, mpdUrl).entries
+
+    fun parseAll(mpd: String, mpdUrl: String): Result {
         val result = ArrayList<ClientDataReportingEntry>()
+        var context: MediaPlayerEntryContext? = null
         try {
             val factory = DocumentBuilderFactory.newInstance()
             factory.isNamespaceAware = true
@@ -57,22 +72,36 @@ object ClientDataReportingParser {
             val locations = LinkedHashMap<String, MutableList<String>>()
             collectServiceLocations(root, listOf(mpdUrl), locations)
             val adaptationSets = document.getElementsByTagNameNS("*", "AdaptationSet")
-            val adaptationSetIds = ArrayList<Long?>()
+            val adaptationSetIds = ArrayList<String>()
             for (i in 0 until adaptationSets.length) {
-                adaptationSetIds.add((adaptationSets.item(i) as Element).getAttribute("id").toLongOrNull())
+                adaptationSetIds.add((adaptationSets.item(i) as Element).getAttribute("id"))
             }
-            for (description in selectedDescriptions(root)) {
+            val descriptions = selectedDescriptions(root)
+            context = MediaPlayerEntryContext(
+                ArrayList(locations.map { (label, urls) -> ServiceLocationUrls(label, ArrayList(urls.distinct())) }),
+                adaptationSetIds,
+                ArrayList(descriptions.mapNotNull { it.getAttribute("id").toLongOrNull() }.distinct())
+            )
+            for (description in descriptions + eventDescriptions(root)) {
+                val byEvent = description !in descriptions
                 for (reporting in children(description, "ClientDataReporting")) {
                     if (reporting.getAttribute("schemeIdUri") != SCHEME) continue
                     for (parameters in children(reporting, "CMCDParameters")) {
-                        entryOf(reporting, parameters, locations, adaptationSetIds)?.let { result.add(it) }
+                        val id = description.getAttribute("id")
+                        for (name in FILTER_ATTRIBUTES.filter { parameters.hasAttribute(it) }) {
+                            Log.w(TAG, "ServiceDescription $id: $name is an attribute of ClientDataReporting, it is ignored on CMCDParameters")
+                        }
+                        val entry = entryOf(description, reporting, parameters, locations, byEvent)
+                        Log.d(TAG, "ServiceDescription $id: " + (entry?.toString() ?: "left out"))
+                        entry?.let { result.add(it) }
                     }
                 }
             }
-        } catch (_: Exception) {
-            return emptyList()
+        } catch (e: Exception) {
+            Log.w(TAG, "The manifest cannot be read for its client data reporting: " + e.message)
+            return Result(emptyList(), null)
         }
-        return result
+        return Result(result, context)
     }
 
     /** The ServiceDescription elements without a Scope: those of the MPD, or those of its only Period if it has any (see above) */
@@ -87,11 +116,30 @@ object ClientDataReportingParser {
         }
     }
 
+    /**
+     * The descriptions that an Event activates: those with the Scope of clause K.6 in the MPD and in its Periods, and the ServiceDescription that an
+     * Event of such an EventStream carries
+     */
+    private fun eventDescriptions(root: Element): List<Element> {
+        fun scoped(parent: Element) = children(parent, "ServiceDescription").filter { description ->
+            children(description, "Scope").any { it.getAttribute("schemeIdUri") == EVENT_SCHEME }
+        }
+        val result = ArrayList<Element>(scoped(root))
+        for (period in children(root, "Period")) {
+            result.addAll(scoped(period))
+            for (stream in children(period, "EventStream").filter { it.getAttribute("schemeIdUri") == EVENT_SCHEME }) {
+                for (event in children(stream, "Event")) result.addAll(children(event, "ServiceDescription"))
+            }
+        }
+        return result
+    }
+
     private fun entryOf(
+        description: Element,
         reporting: Element,
         parameters: Element,
         locations: Map<String, List<String>>,
-        adaptationSetIds: List<Long?>
+        activatedByEvent: Boolean
     ): ClientDataReportingEntry? {
         // @keys is mandatory (table K.17)
         if (!parameters.hasAttribute("keys")) return null
@@ -100,14 +148,15 @@ object ClientDataReportingParser {
             "query" -> ClientDataReportingModes.CMCD_QUERY
             else -> return null
         }
-        // adaptationSets: only a filter that names every AdaptationSet of the MPD can be evaluated by the player
-        if (reporting.hasAttribute("adaptationSets")) {
-            val named = tokens(reporting.getAttribute("adaptationSets")).mapNotNull { it.toLongOrNull() }.toSet()
-            if (adaptationSetIds.isEmpty() || adaptationSetIds.any { it == null || it !in named }) return null
-        }
+        // a token that is not an unsigned integer names no AdaptationSet (UIntVectorType)
+        val adaptationSets = if (reporting.hasAttribute("adaptationSets")) {
+            ArrayList(tokens(reporting.getAttribute("adaptationSets")).mapNotNull { it.toLongOrNull() }.distinct())
+        } else null
         val urls = if (reporting.hasAttribute("serviceLocations")) {
             ArrayList(tokens(reporting.getAttribute("serviceLocations")).flatMap { locations[it].orEmpty() }.distinct())
         } else null
+        // the BaseURL of one service location can lie below that of another: the entry hands over the others so that the player can tell them apart
+        val others = urls?.let { named -> ArrayList(locations.values.flatten().distinct().filter { it !in named }) }?.takeIf { it.isNotEmpty() }
         val requestTypes = tokens(if (parameters.hasAttribute("includeInRequests")) parameters.getAttribute("includeInRequests") else "segment")
             .filter { it == ALL_REQUEST_TYPES || it in REQUEST_TYPES || it in OTHER_REQUEST_TYPES }
         val types = if (ALL_REQUEST_TYPES in requestTypes) null else ArrayList(requestTypes.flatMap { REQUEST_TYPES[it].orEmpty() }.distinct())
@@ -118,7 +167,11 @@ object ClientDataReportingParser {
             mode,
             identifier(parameters, "sessionID"),
             identifier(parameters, "contentID"),
-            keys.takeIf { it.isNotEmpty() }?.let { ArrayList(it) }
+            keys.takeIf { it.isNotEmpty() }?.let { ArrayList(it) },
+            others,
+            description.getAttribute("id").toLongOrNull(),
+            adaptationSets,
+            activatedByEvent
         )
     }
 

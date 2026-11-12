@@ -27,16 +27,39 @@ class ClientDataReportingParserUnitTest {
 
     private fun none(mpd: String) = assertTrue(ClientDataReportingParser.parse(mpd, url).isEmpty())
 
-    // the example of clause K.6.4: its descriptions are scoped to the activation by an Event, which is not applied
+    // clause K.6: a description with the Scope of the activation by an Event is read and marked; any other Scope is never applied
     @Test
-    fun aDescriptionThatAnEventActivatesIsNotApplied() {
-        val example = mpd(
-            cdr("""<CMCDParameters mode="header" includeInRequests="segment" keys="br bl cid dl mtp nor ot sf v"/>""", """serviceLocations="beta" adaptationSets="1""""),
+    fun aDescriptionThatAnEventActivatesIsMarked() {
+        val scoped = mpd(
+            cdr("""<CMCDParameters mode="header" includeInRequests="segment" keys="br bl"/>""", """serviceLocations="beta" adaptationSets="1""""),
             eventScope,
             """<BaseURL serviceLocation="alpha">https://cdn1.example.com/</BaseURL><BaseURL serviceLocation="beta">https://cdn2.example.com/</BaseURL>"""
         )
-        assertTrue(ClientDataReportingParser.parse(example, url).isEmpty())
+        val e = entry(scoped)
+        assertTrue(e.activatedByEvent)
+        assertEquals(1L, e.serviceDescriptionId)
+        assertEquals(listOf("https://cdn2.example.com/"), e.serviceLocationUrls)
+        // not selectable by the settings API: only the descriptions without a Scope are
+        assertEquals(emptyList<Long>(), ClientDataReportingParser.parseAll(scoped, url).context!!.serviceDescriptionIds)
         assertTrue(ClientDataReportingParser.parse(mpd(cdr("""<CMCDParameters keys="br"/>"""), """<Scope schemeIdUri="urn:other"/>"""), url).isEmpty())
+        assertTrue(!entry(mpd(cdr("""<CMCDParameters keys="br"/>"""))).activatedByEvent)
+    }
+
+    // clause K.6.2: the Event carries the identifier of a description or the description itself
+    @Test
+    fun aDescriptionThatAnEventCarriesIsReadAndMarked() {
+        val inline = """<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="dynamic">
+            <ServiceDescription id="10">$eventScope<ClientDataReporting schemeIdUri="$scheme"><CMCDParameters keys="br"/></ClientDataReporting></ServiceDescription>
+            <Period id="1"><EventStream schemeIdUri="urn:mpeg:dash:event:service-description:2024" timescale="1000">
+              <Event presentationTime="0" duration="60000" id="0">10</Event>
+              <Event presentationTime="60000" duration="60000" id="1"><ServiceDescription id="20"><ClientDataReporting schemeIdUri="$scheme"><CMCDParameters keys="bl"/></ClientDataReporting></ServiceDescription></Event>
+            </EventStream>
+            <EventStream schemeIdUri="urn:other"><Event id="5"><ServiceDescription id="30"><ClientDataReporting schemeIdUri="$scheme"><CMCDParameters keys="dl"/></ClientDataReporting></ServiceDescription></Event></EventStream>
+            <AdaptationSet id="1"/></Period></MPD>"""
+        val entries = ClientDataReportingParser.parse(inline, url)
+        assertEquals(listOf(10L, 20L), entries.map { it.serviceDescriptionId })
+        assertTrue(entries.all { it.activatedByEvent })
+        assertEquals(listOf("bl"), entries[1].keys)
     }
 
     // the same description without a Scope applies to all clients (table K.10)
@@ -153,14 +176,34 @@ class ClientDataReportingParserUnitTest {
         assertNull(entry(mpd(cdr("""<CMCDParameters keys="br"/>"""))).serviceLocationUrls)
     }
 
-    // table K.7: the filter by Adaptation Set; the player cannot tell the Adaptation Set of a request, so only a filter that names all of them is applied
+    // table K.7: the filter by Adaptation Set is carried with the ids of the manifest; the player decides (it cannot tell the Adaptation Set of a request)
     @Test
-    fun anAdaptationSetFilterThatNamesAllAdaptationSetsRestrictsNothing() {
+    fun theAdaptationSetFilterIsCarriedWithTheAdaptationSetIdsOfTheManifest() {
         val two = """<Period><AdaptationSet id="1"/><AdaptationSet id="2"/></Period>"""
-        assertNull(entry(mpd(cdr("""<CMCDParameters keys="br"/>""", """adaptationSets="2 1""""), period = two)).serviceLocationUrls)
-        assertTrue(ClientDataReportingParser.parse(mpd(cdr("""<CMCDParameters keys="br"/>""", """adaptationSets="1""""), period = two), url).isEmpty())
-        assertTrue(ClientDataReportingParser.parse(mpd(cdr("""<CMCDParameters keys="br"/>""", """adaptationSets="1""""), period = """<Period><AdaptationSet id="1"/><AdaptationSet/></Period>"""), url).isEmpty())
-        assertTrue(ClientDataReportingParser.parse(mpd(cdr("""<CMCDParameters keys="br"/>""", """adaptationSets="video""""), period = two), url).isEmpty())
+        fun parsed(attributes: String, period: String = two) = ClientDataReportingParser.parseAll(mpd(cdr("""<CMCDParameters keys="br"/>""", attributes), period = period), url)
+        assertEquals(listOf(2L, 1L), parsed("""adaptationSets="2 1"""").entries.single().adaptationSets)
+        assertEquals(listOf("1", "2"), parsed("""adaptationSets="1"""").context!!.adaptationSetIds)
+        assertEquals(listOf("1", ""), parsed("""adaptationSets="1"""", """<Period><AdaptationSet id="1"/><AdaptationSet/></Period>""").context!!.adaptationSetIds)
+        // a token that is no unsigned integer names no Adaptation Set; an absent attribute is every Adaptation Set
+        assertEquals(emptyList<Long>(), parsed("""adaptationSets="video"""").entries.single().adaptationSets)
+        assertNull(parsed("").entries.single().adaptationSets)
+    }
+
+    // clause 13.2.4: the player selects and modifies the descriptions of the manifest by their @id; the Period or the MPD level decides which exist
+    @Test
+    fun theServiceDescriptionIdsAndLabelsOfTheManifestAreCarried() {
+        val manifest = """<MPD xmlns="urn:mpeg:dash:schema:mpd:2011"><BaseURL serviceLocation="a">http://cdn.example/a/</BaseURL>
+            <ServiceDescription id="7"><ClientDataReporting schemeIdUri="$scheme"><CMCDParameters keys="br"/></ClientDataReporting></ServiceDescription>
+            <ServiceDescription id="8"/>
+            <ServiceDescription id="9">$eventScope</ServiceDescription>
+            <ServiceDescription id="x"/>
+            <Period><AdaptationSet id="1"/></Period></MPD>"""
+        val result = ClientDataReportingParser.parseAll(manifest, url)
+        assertEquals(7L, result.entries.single().serviceDescriptionId)
+        assertEquals(listOf(7L, 8L), result.context!!.serviceDescriptionIds)
+        assertEquals(listOf("a"), result.context!!.serviceLocations.map { it.label })
+        assertEquals(listOf("http://cdn.example/a/"), result.context!!.serviceLocations.single().urls)
+        assertNull(ClientDataReportingParser.parseAll("<not xml", url).context)
     }
 
     // table K.16: ClientDataReporting is a descriptor; CMCDParameters 0..N, each an entry
@@ -208,7 +251,7 @@ class ClientDataReportingParserUnitTest {
         // without the Scope the Scope is not what stops it: scheme is not the descriptor, and neither are the label and the comma-separated keys
         none(listing.replace(eventScope, ""))
         // with the ISO descriptor and ids the remaining listing syntax is read as ISO reads it: comma-separated keys are no keys, a label is not an id
-        none(listing.replace(eventScope, "").replace("""scheme="$scheme"""", """schemeIdUri="$scheme""""))
+        assertEquals(emptyList<Long>(), entry(listing.replace(eventScope, "").replace("""scheme="$scheme"""", """schemeIdUri="$scheme"""")).adaptationSets)
         val iso = listing.replace(eventScope, "").replace("""scheme="$scheme"""", """schemeIdUri="$scheme"""").replace("""adaptationSets="video"""", """adaptationSets="1"""").replace("""<AdaptationSet mimeType""", """<AdaptationSet id="1" mimeType""")
         assertNull(entry(iso).keys)
     }
@@ -216,5 +259,35 @@ class ClientDataReportingParserUnitTest {
     @Test
     fun anEntryWithoutModeUsesQuery() {
         assertEquals(ClientDataReportingModes.CMCD_QUERY, entry(mpd(cdr("""<CMCDParameters keys="bl"/>"""))).mode)
+    }
+
+    // the nested locations of the phone run: the BaseURL of dist2 lies below that of dist1, so the entry that names dist1 hands over dist2 as the other one
+    private val phoneBase = """<BaseURL serviceLocation="dist1">http://10.45.0.1:8080/m4d/ps-1/</BaseURL><BaseURL serviceLocation="dist2">http://10.45.0.1:8080/m4d/ps-1/dist2/</BaseURL>"""
+
+    @Test
+    fun anEntryHandsOverTheOtherServiceLocationsOfTheManifest() {
+        val one = entry(mpd(cdr("""<CMCDParameters keys="br"/>""", """serviceLocations="dist1""""), baseUrls = phoneBase))
+        assertEquals(listOf("http://10.45.0.1:8080/m4d/ps-1/"), one.serviceLocationUrls)
+        assertEquals(listOf("http://10.45.0.1:8080/m4d/ps-1/dist2/"), one.otherServiceLocationUrls)
+        val two = entry(mpd(cdr("""<CMCDParameters keys="br"/>""", """serviceLocations="dist2""""), baseUrls = phoneBase))
+        assertEquals(listOf("http://10.45.0.1:8080/m4d/ps-1/"), two.otherServiceLocationUrls)
+        // an unrestricted entry has no other location, nor has one that names them all
+        assertNull(entry(mpd(cdr("""<CMCDParameters keys="br"/>"""), baseUrls = phoneBase)).otherServiceLocationUrls)
+        assertNull(entry(mpd(cdr("""<CMCDParameters keys="br"/>""", """serviceLocations="dist1 dist2""""), baseUrls = phoneBase)).otherServiceLocationUrls)
+    }
+
+    // the manifests of the phone run put serviceLocations and adaptationSets on CMCDParameters: they are attributes of ClientDataReporting (tables K.16, K.17, schema
+    // of the ISO text), so there they restrict nothing and the entry applies to every request
+    @Test
+    fun theFiltersOfTableK7AreReadOnClientDataReportingOnly() {
+        val misplaced = entry(
+            mpd(cdr("""<CMCDParameters keys="br" serviceLocations="no-such-label" adaptationSets="0"/>"""), period = """<Period id="0"><AdaptationSet id="0"/><AdaptationSet id="1"/></Period>""")
+        )
+        assertNull(misplaced.serviceLocationUrls)
+        // in the right place the same filters work: no BaseURL carries the label, and the list does not name AdaptationSet 1
+        val period = """<Period id="0"><AdaptationSet id="0"/><AdaptationSet id="1"/></Period>"""
+        assertEquals(emptyList<String>(), entry(mpd(cdr("""<CMCDParameters keys="br"/>""", """serviceLocations="no-such-label""""), period = period)).serviceLocationUrls)
+        assertEquals(listOf(0L), entry(mpd(cdr("""<CMCDParameters keys="br"/>""", """adaptationSets="0""""), period = period)).adaptationSets)
+        assertEquals(listOf("br"), entry(mpd(cdr("""<CMCDParameters keys="br"/>""", """adaptationSets="0 1""""), period = period)).keys)
     }
 }

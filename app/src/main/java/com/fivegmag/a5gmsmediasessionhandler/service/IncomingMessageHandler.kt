@@ -300,7 +300,8 @@ class IncomingMessageHandler(
                 val manifest = withContext(Dispatchers.IO) { fetchManifest(finalEntryPoints[0], mediaDeliverySessionId) }
                 val manifestConfigurations = manifest?.let { ManifestMetricsConfiguration.parse(it.first) } ?: emptyList()
                 // clause 10.5.1: the client data reporting for CMCD that the Media Player Entry declares goes to the Media Stream Handler
-                val clientDataReporting = manifest?.let { ClientDataReportingParser.parse(it.first, it.second) }.orEmpty()
+                val reportingOfManifest = manifest?.let { ClientDataReportingParser.parseAll(it.first, it.second) }
+                val clientDataReporting = reportingOfManifest?.entries.orEmpty()
                 if (manifestConfigurations.isNotEmpty()) {
                     val converted = ArrayList(manifestConfigurations.mapIndexed { index, c -> c.toClientConfiguration(index) })
                     serviceAccessInformation.clientMetricsReportingConfigurations = converted
@@ -329,7 +330,8 @@ class IncomingMessageHandler(
                         launch?.deliveryProtocols,
                         launch?.multipathMode,
                         launch?.clientDataReportingMode,
-                        clientDataReporting.takeIf { it.isNotEmpty() }?.let { ArrayList(it) }
+                        clientDataReporting.takeIf { it.isNotEmpty() }?.let { ArrayList(it) },
+                        reportingOfManifest?.context
                     )
                 val responseBundle = Bundle()
                 responseBundle.putParcelable("playbackRequest", playbackRequest)
