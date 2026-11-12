@@ -69,10 +69,12 @@ class ServiceAccessInformationController(
     }
 
     override fun resetClientSession(clientId: Int) {
-        stopUpdateTimer(clientId)
-        clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation =
-            null
-        clientsSessionData[clientId]?.serviceAccessInformationSessionData?.responseHeaders = null
+        clientsSessionData[clientId]?.let { client ->
+            client.serviceAccessInformationSessionData.requestTimer?.cancel()
+            client.serviceAccessInformationSessionData = ServiceAccessInformationSessionData(
+                api = client.serviceAccessInformationSessionData.api
+            )
+        }
     }
 
     fun stopUpdateTimer(
