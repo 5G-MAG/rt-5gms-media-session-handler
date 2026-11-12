@@ -52,20 +52,14 @@ class ServiceAccessInformationController(
         val m5BaseUrl: String? = bundle.getString("m5BaseUrl")
         Log.i(SessionController.TAG, "Setting M5 endpoint to $m5BaseUrl")
         if (m5BaseUrl != null) {
-            resetAfterM5Change(clientId)
+            clientsSessionData[clientId]?.serviceAccessInformationSessionData =
+                ServiceAccessInformationSessionData()
             val retrofit = retrofitBuilder
                 .baseUrl(m5BaseUrl)
                 .build()
             clientsSessionData[msg.sendingUid]?.serviceAccessInformationSessionData?.api =
                 retrofit.create(IServiceAccessInformationApi::class.java)
         }
-    }
-
-    private fun resetAfterM5Change(clientId: Int) {
-        resetClientSession(clientId)
-        clientsSessionData[clientId]?.mediaDeliverySessionId = null
-        clientsSessionData[clientId]?.serviceAccessInformationSessionData =
-            ServiceAccessInformationSessionData()
     }
 
     override fun resetClientSession(clientId: Int) {
@@ -80,9 +74,11 @@ class ServiceAccessInformationController(
     fun stopUpdateTimer(
         clientId: Int
     ) {
-        if (clientsSessionData[clientId]?.serviceAccessInformationSessionData?.requestTimer != null) {
-            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.requestTimer?.cancel()
-            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.requestTimer = null
+        clientsSessionData[clientId]?.let { client ->
+            val playbackContext = client.serviceAccessInformationSessionData
+            playbackContext.requestTimer?.cancel()
+            // Invalidate in-flight responses even when the delivery session continues.
+            client.serviceAccessInformationSessionData = playbackContext.copy(requestTimer = null)
         }
     }
 
@@ -92,6 +88,7 @@ class ServiceAccessInformationController(
         mediaDeliverySessionId: String
     ): ServiceAccessInformation? {
         if (clientsSessionData[clientId]?.mediaDeliverySessionId != mediaDeliverySessionId) return null
+        val playbackContext = clientsSessionData[clientId]?.serviceAccessInformationSessionData
         val provisioningSessionId: String = serviceListEntry!!.provisioningSessionId
         val call: Call<ServiceAccessInformation>? =
             clientsSessionData[clientId]?.serviceAccessInformationSessionData?.api?.fetchServiceAccessInformation(
@@ -110,7 +107,9 @@ class ServiceAccessInformationController(
                     call: Call<ServiceAccessInformation?>,
                     response: Response<ServiceAccessInformation?>
                 ) {
-                    if (clientsSessionData[clientId]?.mediaDeliverySessionId != mediaDeliverySessionId) {
+                    if (clientsSessionData[clientId]?.mediaDeliverySessionId != mediaDeliverySessionId ||
+                        clientsSessionData[clientId]?.serviceAccessInformationSessionData !== playbackContext
+                    ) {
                         continuation.resume(null)
                         return
                     }
@@ -187,6 +186,7 @@ class ServiceAccessInformationController(
         provisioningSessionId: String
     ) {
         val mediaDeliverySessionId = clientsSessionData[sendingUid]?.mediaDeliverySessionId ?: return
+        val playbackContext = clientsSessionData[sendingUid]?.serviceAccessInformationSessionData
         // Get MaxAge. If an age header is present, that value shall be subtracted from the value defined in max-age.
         var periodByMaxAgeHeader = getMaxAge(headers)
 
@@ -208,7 +208,9 @@ class ServiceAccessInformationController(
         timer.schedule(
             object : TimerTask() {
                 override fun run() {
-                    if (clientsSessionData[sendingUid]?.mediaDeliverySessionId != mediaDeliverySessionId) return
+                    if (clientsSessionData[sendingUid]?.mediaDeliverySessionId != mediaDeliverySessionId ||
+                        clientsSessionData[sendingUid]?.serviceAccessInformationSessionData !== playbackContext
+                    ) return
                     val call: Call<ServiceAccessInformation>? =
                         clientsSessionData[sendingUid]?.serviceAccessInformationSessionData?.api?.fetchServiceAccessInformation(
                             provisioningSessionId,
@@ -225,7 +227,9 @@ class ServiceAccessInformationController(
                             call: Call<ServiceAccessInformation?>,
                             response: Response<ServiceAccessInformation?>
                         ) {
-                            if (clientsSessionData[sendingUid]?.mediaDeliverySessionId != mediaDeliverySessionId) return
+                            if (clientsSessionData[sendingUid]?.mediaDeliverySessionId != mediaDeliverySessionId ||
+                                clientsSessionData[sendingUid]?.serviceAccessInformationSessionData !== playbackContext
+                            ) return
                             processServiceAccessInformationResponse(
                                 response,
                                 sendingUid,

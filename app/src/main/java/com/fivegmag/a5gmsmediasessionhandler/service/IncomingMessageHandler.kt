@@ -7,7 +7,6 @@ import android.os.Messenger
 import android.util.Log
 import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
-import com.fivegmag.a5gmscommonlibrary.helpers.Utils
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmscommonlibrary.session.PlaybackRequest
 import com.fivegmag.a5gmsmediasessionhandler.controller.ConsumptionReportingController
@@ -19,10 +18,10 @@ import com.fivegmag.a5gmsmediasessionhandler.network.HeaderInterceptor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.io.IOException
 import java.util.Properties
 
 class IncomingMessageHandler(
@@ -36,7 +35,6 @@ class IncomingMessageHandler(
 
 
     private val headerInterceptor = HeaderInterceptor()
-    private val utils = Utils()
     private val okHttpClient = OkHttpClient()
         .newBuilder()
         .addInterceptor(headerInterceptor)
@@ -61,6 +59,8 @@ class IncomingMessageHandler(
                     SessionHandlerMessageTypes.REGISTER_CLIENT -> handleRegisterClient(msg)
 
                     SessionHandlerMessageTypes.UNREGISTER_CLIENT -> handleUnregisterClient(msg)
+
+                    SessionHandlerMessageTypes.END_MEDIA_DELIVERY_SESSION -> resetClientSession(msg.sendingUid)
 
                     SessionHandlerMessageTypes.STATUS_MESSAGE -> handleStatusMessage(msg)
 
@@ -98,6 +98,12 @@ class IncomingMessageHandler(
 
     private fun resetClientSession(clientId: Int) {
         sessionController.resetClientSession(clientId)
+        resetPlayback(clientId)
+    }
+
+    private fun resetPlayback(clientId: Int) {
+        sessionController.resetPlayback(clientId)
+        clientsSessionData[clientId]?.playbackId = null
         serviceAccessInformationController.resetClientSession(clientId)
         consumptionReportingController.resetClientSession(clientId)
         qoeMetricsReportingController.resetClientSession(clientId)
@@ -113,6 +119,11 @@ class IncomingMessageHandler(
     private fun handleStatusMessage(msg: Message) {
         val clientId = msg.sendingUid
         val bundle: Bundle = msg.data as Bundle
+        val playbackId = bundle.getString("playbackId")
+        if (playbackId == null || playbackId != clientsSessionData[clientId]?.playbackId) {
+            Log.d(TAG, "Ignoring playback status for an outdated or missing playback ID")
+            return
+        }
 
         when (bundle.getString("playbackState", "")) {
             PlayerStates.ENDED -> {
@@ -126,7 +137,7 @@ class IncomingMessageHandler(
     }
 
     private fun handlePlaybackStateEnded(clientId: Int) {
-        clientsSessionData[clientId]?.mediaDeliverySessionId = null
+        sessionController.resetPlayback(clientId)
         consumptionReportingController.stopReportingTimer(
             clientId
         )
@@ -155,21 +166,35 @@ class IncomingMessageHandler(
         val serviceListEntry: ServiceListEntry = bundle.getParcelable("serviceListEntry")
             ?: throw java.lang.Exception("No valid ServiceListEntry found")
         val responseMessenger = msg.replyTo
+        val playbackId = requireNotNull(bundle.getString("playbackId")) { "Missing playback ID" }
+        require(playbackId.isNotBlank()) { "Empty playback ID" }
+        val newMediaDeliverySession = requireNotNull(bundle.get("newMediaDeliverySession") as? Boolean) {
+            "Missing or invalid newMediaDeliverySession Boolean"
+        }
 
-        resetClientSession(clientId)
-
-        val mediaDeliverySessionId = utils.generateUUID()
-        clientsSessionData[clientId]?.mediaDeliverySessionId = mediaDeliverySessionId
+        val mediaDeliverySessionId = sessionController.startMediaDeliverySession(
+            clientId,
+            newMediaDeliverySession
+        )
+        resetPlayback(clientId)
+        clientsSessionData[clientId]?.playbackId = playbackId
+        val playbackContext = clientsSessionData[clientId]?.serviceAccessInformationSessionData
 
         CoroutineScope(Dispatchers.Main).launch {
-            val serviceAccessInformation = withContext(Dispatchers.IO) {
+            if (clientsSessionData[clientId]?.serviceAccessInformationSessionData !== playbackContext) return@launch
+            val serviceAccessInformation = try {
                 serviceAccessInformationController.updateServiceAccessInformation(
                     serviceListEntry,
                     clientId,
                     mediaDeliverySessionId
                 )
+            } catch (e: IOException) {
+                Log.e(TAG, "Failed to fetch Service Access Information for playback $playbackId", e)
+                return@launch
             }
-            if (clientsSessionData[clientId]?.mediaDeliverySessionId != mediaDeliverySessionId) return@launch
+            if (clientsSessionData[clientId]?.mediaDeliverySessionId != mediaDeliverySessionId ||
+                clientsSessionData[clientId]?.serviceAccessInformationSessionData !== playbackContext
+            ) return@launch
 
             val finalEntryPoints = sessionController.getFinalEntryPoints(serviceListEntry, serviceAccessInformation)
 
@@ -185,7 +210,8 @@ class IncomingMessageHandler(
                         entryPoints = finalEntryPoints,
                         consumptionRequest = consumptionRequest,
                         qoeMetricsRequests = qoeMetricsRequests,
-                        mediaDeliverySessionId = mediaDeliverySessionId
+                        mediaDeliverySessionId = mediaDeliverySessionId,
+                        playbackId = playbackId
                     )
                 val responseBundle = Bundle()
                 responseBundle.putParcelable("playbackRequest", playbackRequest)
@@ -205,6 +231,7 @@ class IncomingMessageHandler(
     }
 
     private fun handleSetM5Endpoint(msg: Message) {
+        resetPlayback(msg.sendingUid)
         serviceAccessInformationController.setM5Endpoint(msg)
     }
 
