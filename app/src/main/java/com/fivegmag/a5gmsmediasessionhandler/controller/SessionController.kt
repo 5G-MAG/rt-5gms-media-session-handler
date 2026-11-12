@@ -2,6 +2,7 @@ package com.fivegmag.a5gmsmediasessionhandler.controller
 
 import android.os.Message
 import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
+import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 
@@ -29,11 +30,9 @@ class SessionController(
 
     fun getFinalEntryPoints(
         serviceListEntry: ServiceListEntry,
-        clientId: Int
+        serviceAccessInformation: ServiceAccessInformation?
     ): ArrayList<EntryPoint>? {
         var finalEntryPoints: ArrayList<EntryPoint>? = serviceListEntry.entryPoints
-        val serviceAccessInformation =
-            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation
         if (serviceAccessInformation != null && (finalEntryPoints == null || finalEntryPoints.size == 0)) {
             finalEntryPoints =
                 serviceAccessInformation.streamingAccess.entryPoints

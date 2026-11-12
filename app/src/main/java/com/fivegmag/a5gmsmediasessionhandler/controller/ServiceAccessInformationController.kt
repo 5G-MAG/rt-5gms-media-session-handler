@@ -18,7 +18,6 @@ import retrofit2.Response
 import retrofit2.Retrofit
 import java.lang.Exception
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import java.util.Properties
 import java.util.TimeZone
@@ -270,9 +269,8 @@ class ServiceAccessInformationController(
                 val dateFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.ENGLISH)
                 dateFormat.timeZone = TimeZone.getTimeZone("UTC")
                 val expHeaderFormattedDate = dateFormat.parse(dateInExpHeader)
-                val currentDate = dateFormat.format(Date(System.currentTimeMillis()))
-                val currentFormattedDate = dateFormat.parse(currentDate)
-                val difference = abs(currentFormattedDate!!.time - expHeaderFormattedDate!!.time)
+                val currentTimeInSeconds = System.currentTimeMillis() / 1000
+                val difference = abs(currentTimeInSeconds * 1000 - expHeaderFormattedDate!!.time)
                 periodByExpiresHeader = difference / 1000
             }
 

@@ -171,7 +171,7 @@ class IncomingMessageHandler(
             }
             if (clientsSessionData[clientId]?.mediaDeliverySessionId != mediaDeliverySessionId) return@launch
 
-            val finalEntryPoints = sessionController.getFinalEntryPoints(serviceListEntry, clientId)
+            val finalEntryPoints = sessionController.getFinalEntryPoints(serviceListEntry, serviceAccessInformation)
 
             if (finalEntryPoints != null && finalEntryPoints.size > 0) {
                 val consumptionRequest =
