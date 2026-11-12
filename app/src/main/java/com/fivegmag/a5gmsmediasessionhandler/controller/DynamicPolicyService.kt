@@ -1,5 +1,6 @@
 package com.fivegmag.a5gmsmediasessionhandler.controller
 
+import com.fivegmag.a5gmscommonlibrary.helpers.MediaPlayerCapabilities
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerBundleKeys as Keys
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerEvents
 import com.fivegmag.a5gmscommonlibrary.models.BdtWindow
@@ -43,9 +44,14 @@ data class ActivationResult(
  * The scope of the policy is all application flows that match the Media AS domain name(s) of the media delivery session (clause 11.3.1.2);
  * the flows are described by one of the methods of sdfMethods (a domain name as it is, or the addresses of the Media AS that it resolves to).
  *
- * L4S: this client cannot mark packets with ECN and does not try. It reads l4SEnabled and qoSMonitoringEnabled from the Media AF, returns
- * them, sends L4S_ENABLED and QOS_MONITORING_ENABLED when they are true and keeps them in the status; it never sets l4SRequired or
- * qoSMonitoringRequired (clause 4.7.3 of TS 26.512 V19.3.0 allows l4SRequired only when an L4S-capable transport stack is in use).
+ * L4S (TS 26.512 V19.3.0 clause 4.7.3): the Media Session Handler interrogates the capabilities of the Media Player once per media delivery
+ * session (playerCapabilities), at the first activation. It sets l4SRequired in the qosSpecification only if the Service Operation Point
+ * prefers L4S and the Media Player declares CAPABILITY_L4S; table 11.3.1.2-2 calls l4SEnabled the activation "by both the Media AF and by
+ * the Media Access Function", so l4SEnabled, L4S_ENABLED and the status report ECN marking for L4S only for a Media Player with CAPABILITY_L4S.
+ * qoSMonitoringRequired is set only if the Service Operation Point prefers QoS monitoring and the Media Player declares CAPABILITY_QOS (clause
+ * 4.7.3). The Media AF's qoSMonitoringEnabled is returned and kept in the status; QOS_MONITORING_ENABLED and QOS_MONITORING_RESULTS go only to
+ * a Media Player with CAPABILITY_QOS, which clause 4.9.3 has subscribe to them ("If the Media Player is capable of consuming QoS monitoring results").
+ * A requirement needs a qosSpecification (clause 5.3.3.2 item 4), so neither flag is sent without target bit rates.
  */
 class DynamicPolicyService(
     val mediaDeliverySessionId: String,
@@ -55,7 +61,9 @@ class DynamicPolicyService(
     private val domainNames: () -> List<String>,
     private val now: () -> OffsetDateTime,
     private val emit: (ClientEvent) -> Unit,
-    private val location: () -> TypedLocation? = { null }
+    private val location: () -> TypedLocation? = { null },
+    /** The capabilities of the Media Player of the media delivery session (table 13.2.4-2); blocks while the Media Player is interrogated */
+    private val playerCapabilities: () -> Set<String> = { emptySet() }
 ) {
     var lastFailure: String? = null
         private set
@@ -71,6 +79,16 @@ class DynamicPolicyService(
     private var serviceOperationPointReference: String? = null
     private var provisioningSessionId: String? = null
     private var client: DynamicPolicyM5Client? = null
+    private var capabilities: Set<String>? = null
+
+    /** The capabilities of the Media Player, interrogated at the first use (clause 4.7.3: the Media Session Handler "shall interrogate" them) and kept for the session */
+    private fun capabilitiesOfPlayer(): Set<String> = capabilities ?: playerCapabilities().also { capabilities = it }
+
+    private fun isL4sCapable() = MediaPlayerCapabilities.CAPABILITY_L4S in (capabilities ?: emptySet())
+    private fun isQosCapable() = MediaPlayerCapabilities.CAPABILITY_QOS in (capabilities ?: emptySet())
+
+    // what the policy in force asked for (without the requirements): the Service Operation Point it was activated for and its bit rates
+    private var requestedSpecification: ClientPolicySpecification? = null
 
     fun serviceOperationPoints(): List<PolicyTemplateBinding> =
         serviceAccessInformation()?.dynamicPolicyInvocationConfiguration?.policyTemplateBindings.orEmpty()
@@ -82,6 +100,7 @@ class DynamicPolicyService(
 
     /** The QoS that the client asked for in the dynamic QoS policy in force, which a Network Assistance Session requests as its initial QoS (TS 26.510 V19.2.0 clause 11.4.1.1); null when none was asked for */
     val activeRequestedQoS: ClientPolicySpecification? @Synchronized get() = policy?.applicationFlowBindings?.firstOrNull { it.qosSpecification != null }?.qosSpecification
+        ?.copy(l4SRequired = null, qoSMonitoringRequired = null) // the requirements are those of the Dynamic Policy request (clause 5.3.3.2), not of a Network Assistance Session
 
     private fun fail(reason: String): Nothing? {
         lastFailure = reason
@@ -143,9 +162,13 @@ class DynamicPolicyService(
         }
         val m5 = clientFor(sai) ?: return fail("the Service Access Information has no Dynamic Policy invocation server")
 
+        val playerCapabilities = capabilitiesOfPlayer()
         val request = DynamicPolicyRequests.dynamicPolicy(
             mediaDeliverySessionId, binding, DynamicPolicyRequests.flowDescriptions(method, ue, addresses, domains), componentReference,
-            DynamicPolicyRequests.qosSpecification(targetDownlinkBitRate, targetUplinkBitRate), window, estimatedTransferVolume,
+            DynamicPolicyRequests.qosSpecification(
+                targetDownlinkBitRate, targetUplinkBitRate,
+                DynamicPolicyRequests.l4SRequired(binding, playerCapabilities), DynamicPolicyRequests.qoSMonitoringRequired(binding, playerCapabilities)
+            ), window, estimatedTransferVolume,
             DynamicPolicyRequests.locationFor(sai, location)
         )
         val held = policy
@@ -162,7 +185,30 @@ class DynamicPolicyService(
         if (held?.dynamicPolicyId == null) resource.dynamicPolicyId?.let(subscribeTopic)
         policy = resource
         serviceOperationPointReference = reference
+        requestedSpecification = DynamicPolicyRequests.qosSpecification(targetDownlinkBitRate, targetUplinkBitRate)
         return announce(resource, reference)
+    }
+
+    /**
+     * The notification of a change of the Service Operation Point at M11 (TS 26.510 V19.2.0 clause 5.4.3, TS 26.512 V19.3.0 table 13.2.5-1
+     * OPERATION_POINT_CHANGED): "If the QoS of the new Service Operation Point is not satisfied by the currently instantiated Dynamic Policy, the
+     * Media Session Handler shall attempt to instantiate a Dynamic Policy satisfying the Media Access Function's requirements [...] if the target QoS
+     * lies within the bounds of a Policy Template with the corresponding external reference advertised in the Service Access Information". The
+     * policy in force satisfies the new point when it was activated for the same external reference with the same target bit rates. The bounds
+     * of a Policy Template are not in the Service Access Information, so the Media AF decides them when it creates the policy (a refusal is the
+     * usual one). A Background Data Transfer point needs an estimated volume that the notification does not carry: it is not instantiated here.
+     * Returns the activation, or null when nothing was instantiated (the reason is in lastFailure).
+     */
+    @Synchronized
+    fun onOperationPointChanged(reference: String, targetDownlinkBitRate: String?, targetUplinkBitRate: String?): ActivationResult? {
+        lastFailure = null
+        val binding = DynamicPolicyRequests.bindingFor(serviceAccessInformation(), reference)
+            ?: return fail("no Policy Template with the external reference [$reference] is advertised")
+        if (!binding.bdtWindows.isNullOrEmpty()) return fail("the Service Operation Point [$reference] is a Background Data Transfer policy, which needs an estimated volume")
+        if (policy != null && serviceOperationPointReference == reference &&
+            requestedSpecification == DynamicPolicyRequests.qosSpecification(targetDownlinkBitRate, targetUplinkBitRate)
+        ) return fail("the Dynamic Policy in force satisfies the Service Operation Point [$reference]")
+        return activate(reference, null, null, targetDownlinkBitRate, targetUplinkBitRate)
     }
 
     private fun backgroundDataTransferError(reason: String): Nothing? {
@@ -189,7 +235,7 @@ class DynamicPolicyService(
     private fun announce(resource: DynamicPolicy, reference: String): ActivationResult {
         val qos = resource.applicationFlowBindings.firstOrNull { it.qosSpecification != null }?.qosSpecification
         val granted = resource.bdtSpecification?.windows.orEmpty()
-        val l4s = resource.l4SEnabled == true
+        val l4s = resource.l4SEnabled == true && isL4sCapable()
         val qosMonitoring = resource.qoSMonitoringEnabled == true
         val result = ActivationResult(
             qos?.downlinkBitRates?.maximumRequestedBitRate, qos?.uplinkBitRates?.maximumRequestedBitRate, granted, l4s, qosMonitoring
@@ -205,7 +251,7 @@ class DynamicPolicyService(
             )
         )
         if (l4s) emit(ClientEvent.of(SessionHandlerEvents.DynamicPolicy.L4S_ENABLED, mediaDeliverySessionId))
-        if (qosMonitoring) emit(ClientEvent.of(SessionHandlerEvents.DynamicPolicy.QOS_MONITORING_ENABLED, mediaDeliverySessionId))
+        if (qosMonitoring && isQosCapable()) emit(ClientEvent.of(SessionHandlerEvents.DynamicPolicy.QOS_MONITORING_ENABLED, mediaDeliverySessionId))
         return result
     }
 
@@ -247,6 +293,7 @@ class DynamicPolicyService(
     private fun clear() {
         policy = null
         serviceOperationPointReference = null
+        requestedSpecification = null
     }
 
     /** The status currentDynamicPolicies of this media delivery session (table 11.3.2-1); null when no policy is in force */
@@ -257,7 +304,7 @@ class DynamicPolicyService(
         return DynamicPolicyStatus(
             mediaDeliverySessionId, reference, held.dynamicPolicyId ?: "",
             ArrayList(held.bdtSpecification?.windows.orEmpty()),
-            held.l4SEnabled == true, held.qoSMonitoringEnabled == true, held.qoSMonitoringResults
+            held.l4SEnabled == true && isL4sCapable(), held.qoSMonitoringEnabled == true, held.qoSMonitoringResults
         )
     }
 
@@ -306,12 +353,12 @@ class DynamicPolicyService(
         val reference = serviceOperationPointReference ?: return
         if (notified.dynamicPolicyId != held.dynamicPolicyId) return
         policy = notified
-        if (notified.l4SEnabled == true && held.l4SEnabled != true) emit(ClientEvent.of(SessionHandlerEvents.DynamicPolicy.L4S_ENABLED, mediaDeliverySessionId))
-        if (notified.qoSMonitoringEnabled == true && held.qoSMonitoringEnabled != true) {
+        if (notified.l4SEnabled == true && held.l4SEnabled != true && isL4sCapable()) emit(ClientEvent.of(SessionHandlerEvents.DynamicPolicy.L4S_ENABLED, mediaDeliverySessionId))
+        if (notified.qoSMonitoringEnabled == true && held.qoSMonitoringEnabled != true && isQosCapable()) {
             emit(ClientEvent.of(SessionHandlerEvents.DynamicPolicy.QOS_MONITORING_ENABLED, mediaDeliverySessionId))
         }
         when (reason) {
-            REASON_QOS_MONITORING_RESULTS -> emit(
+            REASON_QOS_MONITORING_RESULTS -> if (isQosCapable()) emit(
                 ClientEvent.of(SessionHandlerEvents.DynamicPolicy.QOS_MONITORING_RESULTS, mediaDeliverySessionId, Keys.QOS_MONITORING_RESULTS to notified.qoSMonitoringResults)
             )
             REASON_WINDOW_CANCELLATION -> {

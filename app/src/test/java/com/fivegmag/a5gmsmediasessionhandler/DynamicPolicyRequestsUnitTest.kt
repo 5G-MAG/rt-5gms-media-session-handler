@@ -7,6 +7,8 @@ import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmscommonlibrary.models.TimeWindow
 import com.fivegmag.a5gmsmediasessionhandler.controller.DynamicPolicyRequests
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -107,5 +109,40 @@ class DynamicPolicyRequestsUnitTest {
         assertNull(without.policyTemplateId)
         assertNull(without.componentReference)
         assertNull(without.applicationFlowDescription.mediaType)
+    }
+
+    // TS 26.512 V19.3.0 clause 4.7.3: l4SRequired only for a binding that prefers L4S and a Media Player that declares CAPABILITY_L4S
+    @Test
+    fun l4sRequiredNeedsThePreferenceAndTheCapability() {
+        val prefers = PolicyTemplateBinding("sop", "pt", l4SEnablementPreference = true)
+        val indifferent = PolicyTemplateBinding("sop", "pt")
+        val l4s = setOf(com.fivegmag.a5gmscommonlibrary.helpers.MediaPlayerCapabilities.CAPABILITY_L4S)
+        val qos = setOf(com.fivegmag.a5gmscommonlibrary.helpers.MediaPlayerCapabilities.CAPABILITY_QOS)
+        assertTrue(DynamicPolicyRequests.l4SRequired(prefers, l4s))
+        assertFalse(DynamicPolicyRequests.l4SRequired(prefers, qos))
+        assertFalse(DynamicPolicyRequests.l4SRequired(prefers, emptySet()))
+        assertFalse(DynamicPolicyRequests.l4SRequired(indifferent, l4s))
+    }
+
+    @Test
+    fun theQosSpecificationCarriesL4sRequiredOnlyWhenTrue() {
+        assertNull(DynamicPolicyRequests.qosSpecification("6 Mbps", "1 Mbps")!!.l4SRequired)
+        assertEquals(true, DynamicPolicyRequests.qosSpecification("6 Mbps", "1 Mbps", l4SRequired = true)!!.l4SRequired)
+        assertNull(DynamicPolicyRequests.qosSpecification(null, null, l4SRequired = true))
+    }
+
+    // TS 26.512 V19.3.0 clause 4.7.3: qoSMonitoringRequired only for a binding that prefers QoS monitoring and a Media Player with CAPABILITY_QOS
+    @Test
+    fun qosMonitoringRequiredNeedsThePreferenceAndTheCapability() {
+        val prefers = PolicyTemplateBinding("sop", "pt", qoSMonitoringEnablementPreference = true)
+        val indifferent = PolicyTemplateBinding("sop", "pt")
+        val l4s = setOf(com.fivegmag.a5gmscommonlibrary.helpers.MediaPlayerCapabilities.CAPABILITY_L4S)
+        val qos = setOf(com.fivegmag.a5gmscommonlibrary.helpers.MediaPlayerCapabilities.CAPABILITY_QOS)
+        assertTrue(DynamicPolicyRequests.qoSMonitoringRequired(prefers, qos))
+        assertFalse(DynamicPolicyRequests.qoSMonitoringRequired(prefers, l4s))
+        assertFalse(DynamicPolicyRequests.qoSMonitoringRequired(prefers, emptySet()))
+        assertFalse(DynamicPolicyRequests.qoSMonitoringRequired(indifferent, qos))
+        assertNull(DynamicPolicyRequests.qosSpecification("6 Mbps", "1 Mbps")!!.qoSMonitoringRequired)
+        assertEquals(true, DynamicPolicyRequests.qosSpecification("6 Mbps", "1 Mbps", qoSMonitoringRequired = true)!!.qoSMonitoringRequired)
     }
 }

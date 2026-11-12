@@ -118,6 +118,10 @@ class IncomingMessageHandler(
 
                     SessionHandlerMessageTypes.GET_BDT_INFO -> dynamicPolicyController.handleGetBdtInfo(msg)
 
+                    SessionHandlerMessageTypes.GET_PLAYER_CAPABILITIES_REPLY -> dynamicPolicyController.handleGetPlayerCapabilitiesReply(msg)
+
+                    SessionHandlerMessageTypes.OPERATION_POINT_CHANGED -> dynamicPolicyController.handleOperationPointChanged(msg)
+
                     SessionHandlerMessageTypes.ACTIVATE_POLICY -> dynamicPolicyController.handleActivatePolicy(msg)
 
                     SessionHandlerMessageTypes.DEACTIVATE_POLICY -> dynamicPolicyController.handleDeactivatePolicy(msg)

@@ -1,5 +1,6 @@
 package com.fivegmag.a5gmsmediasessionhandler.controller
 
+import com.fivegmag.a5gmscommonlibrary.helpers.MediaPlayerCapabilities
 import com.fivegmag.a5gmscommonlibrary.models.ApplicationFlowBinding
 import com.fivegmag.a5gmscommonlibrary.models.ApplicationFlowDescription
 import com.fivegmag.a5gmscommonlibrary.models.BdtWindow
@@ -97,11 +98,34 @@ object DynamicPolicyRequests {
      * mandatory in UnidirectionalBitRateSpecification; the one target is given to all three, and a direction without a target takes that
      * of the other. Null when no target is given.
      */
-    fun qosSpecification(downlink: String?, uplink: String?): ClientPolicySpecification? {
+    fun qosSpecification(downlink: String?, uplink: String?, l4SRequired: Boolean = false, qoSMonitoringRequired: Boolean = false): ClientPolicySpecification? {
         if (downlink == null && uplink == null) return null
         fun rates(rate: String) = UnidirectionalBitRateSpecification(rate, rate, rate)
-        return ClientPolicySpecification(rates(downlink ?: uplink!!), rates(uplink ?: downlink!!))
+        return ClientPolicySpecification(
+            rates(downlink ?: uplink!!), rates(uplink ?: downlink!!),
+            l4SRequired = if (l4SRequired) true else null, qoSMonitoringRequired = if (qoSMonitoringRequired) true else null
+        )
     }
+
+    /**
+     * l4SRequired of the request (TS 26.512 V19.3.0 clause 4.7.3): "When instantiating a Policy Template whose Policy Template Binding indicates
+     * l4SEnablementPreference set to true, the Media Session Handler shall set the l4SRequired flag to true in the Dynamic Policy request only if
+     * an L4S-capable media transport stack is present and in use. This is the case if the Media Session Handler detects that [...] or if the Media
+     * Player configuration and settings API (see clause 13.2.4) declares CAPABILITY_L4S." The specification defines no detection, so the
+     * declaration of the Media Player (table 13.2.4-1, capabilities) is the only source; without it the flag stays off.
+     */
+    fun l4SRequired(binding: PolicyTemplateBinding, playerCapabilities: Set<String>): Boolean =
+        binding.l4SEnablementPreference && MediaPlayerCapabilities.CAPABILITY_L4S in playerCapabilities
+
+    /**
+     * qoSMonitoringRequired of the request (TS 26.512 V19.3.0 clause 4.7.3): "When instantiating a Policy Template whose Policy Template Binding
+     * indicates qoSMonitoringEnablementPreference set to true, the Media Session Handler shall set the qoSMonitoringRequired flag to true in the
+     * Dynamic Policy request only if the Media Player is capable of consuming QoS monitoring results." The Media Player says so with
+     * CAPABILITY_QOS (table 13.2.4-2: "capable of reacting to QoS monitoring results"). The Policy Template itself stays the one that the
+     * application named by the Service Operation Point reference: an external reference identifies one Policy Template (clause 11.3.1.2).
+     */
+    fun qoSMonitoringRequired(binding: PolicyTemplateBinding, playerCapabilities: Set<String>): Boolean =
+        binding.qoSMonitoringEnablementPreference && MediaPlayerCapabilities.CAPABILITY_QOS in playerCapabilities
 
     /**
      * The Dynamic Policy Instance of clause 5.3.3.2: the media delivery session, the Policy Template of the Service Operation Point, one

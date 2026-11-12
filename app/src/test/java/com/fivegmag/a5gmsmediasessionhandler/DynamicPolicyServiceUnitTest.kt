@@ -1,5 +1,6 @@
 package com.fivegmag.a5gmsmediasessionhandler
 
+import com.fivegmag.a5gmscommonlibrary.helpers.MediaPlayerCapabilities
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerBundleKeys as Keys
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerEvents
 import com.fivegmag.a5gmscommonlibrary.models.BdtWindow
@@ -43,6 +44,9 @@ class DynamicPolicyServiceUnitTest {
     private var domains = listOf("media.example")
     private var ueAddress: String? = "10.0.0.2"
     private var resolved = listOf("192.0.2.1")
+    // what the Media Player reports when it is interrogated, and how often it was
+    private var capabilities = emptySet<String>()
+    private var interrogations = 0
 
     private val endpoints = object : FlowEndpoints {
         override fun ueIpv4Address() = ueAddress
@@ -52,7 +56,7 @@ class DynamicPolicyServiceUnitTest {
     private fun service(): DynamicPolicyService {
         val retrofit = Retrofit.Builder().baseUrl(af.baseUrl).addConverterFactory(GsonConverterFactory.create()).client(OkHttpClient()).build()
         val client = DynamicPolicyM5Client(retrofit.create(IDynamicPolicyApi::class.java), null)
-        return DynamicPolicyService("s1", { sai }, { client }, { endpoints }, { domains }, { now }, { events.add(it) })
+        return DynamicPolicyService("s1", { sai }, { client }, { endpoints }, { domains }, { now }, { events.add(it) }, playerCapabilities = { interrogations++; capabilities })
     }
 
     @After
@@ -110,6 +114,7 @@ class DynamicPolicyServiceUnitTest {
     // Table 11.3.1.2-2 and 11.3.2-2: return values, POLICY_ACTIVATED, L4S_ENABLED and QOS_MONITORING_ENABLED
     @Test
     fun activatePolicyReturnsTheRatesAndTheFlagsAndSendsTheEvents() {
+        capabilities = setOf(MediaPlayerCapabilities.CAPABILITY_L4S, MediaPlayerCapabilities.CAPABILITY_QOS)
         af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos", l4s = true, qosMonitoring = true), "http://af/d1"))
         val s = service()
         val result = s.activate("sop-qos", null, null, "6 Mbps", "1 Mbps")!!
@@ -305,6 +310,7 @@ class DynamicPolicyServiceUnitTest {
     // Table 11.3.2-1
     @Test
     fun theStatusHoldsThePointTheQuotaTheFlagsAndTheResults() {
+        capabilities = setOf(MediaPlayerCapabilities.CAPABILITY_L4S)
         assertNull(service().status())
         val withResults = policyJson("pt-bdt", l4s = true, qosMonitoring = true, withWindow = true).replace("\"qosEnforcement\"", "\"qoSMonitoringResults\":{\"dlDelays\":[7]},\"qosEnforcement\"")
         af.answer("POST", base, MediaAfDouble.Response(201, withResults))
@@ -365,6 +371,7 @@ class DynamicPolicyServiceUnitTest {
     // Table 11.3.2-2: QOS_MONITORING_RESULTS carries the results; the status shows the latest
     @Test
     fun qosMonitoringResultsAreSignalledAndKept() {
+        capabilities = setOf(MediaPlayerCapabilities.CAPABILITY_QOS)
         val s = activated()
         s.onNotification(notified(policyJson("pt-qos", qosMonitoring = true).replace("\"qosEnforcement\"", "\"qoSMonitoringResults\":{\"dlDelays\":[9],\"pdmf\":true},\"qosEnforcement\"")),
             "NOTIFICATION_REASON_QOS_MONITORING_RESULTS")
@@ -381,6 +388,7 @@ class DynamicPolicyServiceUnitTest {
     // A flag that becomes true in a notification is signalled once
     @Test
     fun aFlagThatBecomesTrueInANotificationIsSignalledOnce() {
+        capabilities = setOf(MediaPlayerCapabilities.CAPABILITY_L4S)
         val s = activated()
         val update = notified(policyJson("pt-qos", l4s = true))
         s.onNotification(update, "NOTIFICATION_REASON_PROVISIONING_UPDATE")
@@ -445,5 +453,184 @@ class DynamicPolicyServiceUnitTest {
         s.onServiceAccessInformationUpdated(saiWith(earlier), saiWith(earlier, ended))
         s.onServiceAccessInformationUpdated(null, saiWith(earlier, later))
         assertTrue(events.isEmpty())
+    }
+
+    private fun sentSpecification(): String {
+        val sent = JsonParser().parse(af.requests.last { it.method == "POST" }.body).asJsonObject
+        return sent["applicationFlowBindings"].asJsonArray[0].asJsonObject["qosSpecification"]?.toString() ?: ""
+    }
+
+    // TS 26.512 V19.3.0 clause 4.7.3: l4SRequired only if the Media Player declares CAPABILITY_L4S (table 13.2.4-2) and the point prefers L4S
+    @Test
+    fun l4sRequiredIsSetForAPreferringPointAndAPlayerThatDeclaresTheCapability() {
+        capabilities = setOf(MediaPlayerCapabilities.CAPABILITY_L4S)
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos")))
+        service().activate("sop-qos", null, null, "6 Mbps", "1 Mbps")
+        assertTrue(sentSpecification().contains("\"l4SRequired\":true"))
+    }
+
+    @Test
+    fun l4sRequiredIsNotSetWhenThePlayerDoesNotDeclareTheCapability() {
+        capabilities = setOf(MediaPlayerCapabilities.CAPABILITY_QOS)
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos")))
+        service().activate("sop-qos", null, null, "6 Mbps", "1 Mbps")
+        assertTrue(sentSpecification().isNotEmpty())
+        assertFalse(sentSpecification().contains("l4SRequired"))
+    }
+
+    @Test
+    fun l4sRequiredIsNotSetForAPointThatDoesNotPreferL4s() {
+        capabilities = setOf(MediaPlayerCapabilities.CAPABILITY_L4S, MediaPlayerCapabilities.CAPABILITY_QOS)
+        val plain = PolicyTemplateBinding("sop-plain", "pt-plain")
+        val saiPlain = ServiceAccessInformation(
+            "ps1", null, null, null, null,
+            dynamicPolicyInvocationConfiguration = DynamicPolicyInvocationConfiguration(arrayListOf(af.baseUrl), arrayListOf(plain), arrayListOf("5_TUPLE"))
+        )
+        val retrofit = Retrofit.Builder().baseUrl(af.baseUrl).addConverterFactory(GsonConverterFactory.create()).client(OkHttpClient()).build()
+        val client = DynamicPolicyM5Client(retrofit.create(IDynamicPolicyApi::class.java), null)
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-plain")))
+        DynamicPolicyService("s1", { saiPlain }, { client }, { endpoints }, { domains }, { now }, { events.add(it) }, playerCapabilities = { capabilities })
+            .activate("sop-plain", null, null, "6 Mbps", "1 Mbps")
+        assertFalse(sentSpecification().contains("l4SRequired"))
+    }
+
+    // Without a qosSpecification there is nowhere to put the flag (clause 5.3.3.2 item 4: the bit rates of the specification are mandatory)
+    @Test
+    fun l4sRequiredIsNotSentWithoutAQosSpecification() {
+        capabilities = setOf(MediaPlayerCapabilities.CAPABILITY_L4S)
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos", withQos = false)))
+        service().activate("sop-qos", null, null, null, null)
+        assertFalse(af.requests.last { it.method == "POST" }.body.contains("l4SRequired"))
+    }
+
+    // Clause 4.7.3: "shall interrogate the capabilities of the Media Player": once per media delivery session, at the first activation
+    @Test
+    fun thePlayerIsInterrogatedOnceAtTheFirstActivation() {
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos")))
+        af.answer("PUT", base + "d1", MediaAfDouble.Response(204))
+        val s = service()
+        assertEquals(0, interrogations)
+        s.activate("sop-qos", null, null, "6 Mbps", "1 Mbps")
+        assertEquals(1, interrogations)
+        s.activate("sop-qos", null, null, "7 Mbps", "1 Mbps")
+        assertEquals(1, interrogations)
+    }
+
+    // Table 11.3.1.2-2: l4SEnabled is the activation "by both the Media AF and by the Media Access Function"
+    @Test
+    fun l4sEnabledIsReportedOnlyForAPlayerWithTheCapability() {
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos", l4s = true)))
+        val s = service()
+        val result = s.activate("sop-qos", null, null, "6 Mbps", "1 Mbps")!!
+        assertFalse(result.l4SEnabled)
+        assertFalse(names().contains(SessionHandlerEvents.DynamicPolicy.L4S_ENABLED))
+        assertFalse(s.status()!!.l4SEnabled)
+    }
+
+    // The Network Assistance Session requests the QoS of the policy in force, without the requirements of the Dynamic Policy request
+    @Test
+    fun theQosOfANetworkAssistanceSessionCarriesNoL4sRequirement() {
+        capabilities = setOf(MediaPlayerCapabilities.CAPABILITY_L4S)
+        // the Media AF returns the representation with the requirement in it
+        val echoed = policyJson("pt-qos").replace("\"uplinkBitRates\"", "\"l4SRequired\":true,\"qoSMonitoringRequired\":true,\"uplinkBitRates\"")
+        af.answer("POST", base, MediaAfDouble.Response(201, echoed))
+        val s = service()
+        s.activate("sop-qos", null, null, "6 Mbps", "1 Mbps")
+        assertTrue(sentSpecification().contains("l4SRequired"))
+        assertNull(s.activeRequestedQoS!!.l4SRequired)
+        assertNull(s.activeRequestedQoS!!.qoSMonitoringRequired)
+    }
+
+    // TS 26.512 V19.3.0 clause 4.7.3: qoSMonitoringRequired only if the Media Player is capable of consuming QoS monitoring results (CAPABILITY_QOS)
+    @Test
+    fun qosMonitoringRequiredIsSetOnlyForAPlayerThatDeclaresCapabilityQos() {
+        capabilities = setOf(MediaPlayerCapabilities.CAPABILITY_QOS)
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos")))
+        service().activate("sop-qos", null, null, "6 Mbps", "1 Mbps")
+        assertTrue(sentSpecification().contains("\"qoSMonitoringRequired\":true"))
+        assertFalse(sentSpecification().contains("l4SRequired"))
+    }
+
+    @Test
+    fun qosMonitoringRequiredIsNotSetForAPlayerWithoutTheCapability() {
+        capabilities = setOf(MediaPlayerCapabilities.CAPABILITY_L4S)
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos")))
+        service().activate("sop-qos", null, null, "6 Mbps", "1 Mbps")
+        assertTrue(sentSpecification().contains("l4SRequired"))
+        assertFalse(sentSpecification().contains("qoSMonitoringRequired"))
+    }
+
+    // the Media AF enabled monitoring although it was not required: a Media Player that cannot consume the results is not sent them
+    @Test
+    fun theQosMonitoringEventsGoOnlyToAPlayerWithCapabilityQos() {
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos", qosMonitoring = true)))
+        val s = service()
+        val result = s.activate("sop-qos", null, null, "6 Mbps", "1 Mbps")!!
+        assertTrue(result.qoSMonitoringEnabled)
+        assertEquals(listOf(SessionHandlerEvents.DynamicPolicy.POLICY_ACTIVATED), names())
+        events.clear()
+        val withResults = notified(policyJson("pt-qos", qosMonitoring = true).replace("\"qosEnforcement\"", "\"qoSMonitoringResults\":{\"dlDelays\":[7]},\"qosEnforcement\""))
+        s.onNotification(withResults, DynamicPolicyService.REASON_QOS_MONITORING_RESULTS)
+        assertTrue(events.isEmpty())
+        // the status still holds the results (table 11.3.2-1)
+        assertEquals(7, s.status()!!.qoSMonitoringResults!!.dlDelays!![0])
+    }
+
+    // Clause 5.4.3: the Media Access Function names the new Service Operation Point; a Dynamic Policy is instantiated unless the one in force satisfies it
+    @Test
+    fun aChangeOfTheServiceOperationPointInstantiatesAPolicyForIt() {
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos")))
+        val s = service()
+        val result = s.onOperationPointChanged("sop-qos", "6 Mbps", "1 Mbps")
+        assertNotNull(result)
+        assertEquals("sop-qos", s.status()!!.serviceOperationPointReference)
+        assertEquals(listOf("POST"), af.requests.map { it.method })
+        assertEquals(listOf(SessionHandlerEvents.DynamicPolicy.POLICY_ACTIVATED), names())
+    }
+
+    @Test
+    fun aChangeToThePointThatIsInForceWithTheSameTargetInstantiatesNothing() {
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos")))
+        val s = service()
+        s.onOperationPointChanged("sop-qos", "6 Mbps", "1 Mbps")
+        assertNull(s.onOperationPointChanged("sop-qos", "6 Mbps", "1 Mbps"))
+        assertEquals(listOf("POST"), af.requests.map { it.method })
+        // another target QoS of the same point is not satisfied by it: the policy is replaced
+        af.answer("PUT", base + "d1", MediaAfDouble.Response(200, policyJson("pt-qos")))
+        assertNotNull(s.onOperationPointChanged("sop-qos", "3 Mbps", "1 Mbps"))
+        assertEquals(listOf("POST", "PUT"), af.requests.map { it.method })
+    }
+
+    @Test
+    fun aChangeToAPointWithoutAPolicyTemplateInstantiatesNothing() {
+        val s = service()
+        assertNull(s.onOperationPointChanged("unknown", "6 Mbps", "1 Mbps"))
+        assertTrue(af.requests.isEmpty())
+        assertNotNull(s.lastFailure)
+    }
+
+    @Test
+    fun aBackgroundDataTransferPointIsNotInstantiatedByAChangeBecauseTheVolumeIsUnknown() {
+        val s = service()
+        assertNull(s.onOperationPointChanged("sop-bdt", "6 Mbps", null))
+        assertTrue(af.requests.isEmpty())
+    }
+
+    @Test
+    fun aChangeOfPointReplacesThePolicyOfTheOtherPoint() {
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos")))
+        af.answer("PUT", base + "d1", MediaAfDouble.Response(200, policyJson("pt-other")))
+        val other = PolicyTemplateBinding("sop-other", "pt-other")
+        val saiBoth = ServiceAccessInformation(
+            "ps1", null, null, null, null,
+            dynamicPolicyInvocationConfiguration = DynamicPolicyInvocationConfiguration(arrayListOf(af.baseUrl), arrayListOf(qosBinding, other), arrayListOf("5_TUPLE"))
+        )
+        val retrofit = Retrofit.Builder().baseUrl(af.baseUrl).addConverterFactory(GsonConverterFactory.create()).client(OkHttpClient()).build()
+        val client = DynamicPolicyM5Client(retrofit.create(IDynamicPolicyApi::class.java), null)
+        val s = DynamicPolicyService("s1", { saiBoth }, { client }, { endpoints }, { domains }, { now }, { events.add(it) })
+        s.onOperationPointChanged("sop-qos", "6 Mbps", "1 Mbps")
+        s.onOperationPointChanged("sop-other", "2 Mbps", "1 Mbps")
+        assertEquals(listOf("POST", "PUT"), af.requests.map { it.method })
+        assertEquals("sop-other", s.status()!!.serviceOperationPointReference)
     }
 }

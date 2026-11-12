@@ -3,6 +3,7 @@ package com.fivegmag.a5gmsmediasessionhandler.controller
 import android.os.Bundle
 import android.os.Message
 import android.os.Messenger
+import android.util.Log
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerBundleKeys as Keys
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
@@ -33,6 +34,13 @@ class DynamicPolicyController(
     private val outgoingMessageHandler: OutgoingMessageHandler
 ) : IController {
 
+    companion object {
+        const val TAG = "5GMS-DynamicPolicyController"
+
+        /** How long the Media Session Handler waits for the capabilities of the Media Player */
+        const val CAPABILITY_TIMEOUT_MS = 1500L
+    }
+
     var endpoints: () -> FlowEndpoints? = { null }
 
     /** The location of the UE (set by the owner), for the locationReporting of the Service Access Information */
@@ -55,6 +63,26 @@ class DynamicPolicyController(
     var subscribeTopic: (Int, String) -> Unit = { _, _ -> }
     var unsubscribeTopic: (Int, String) -> Unit = { _, _ -> }
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val capabilityInterrogation = PlayerCapabilityInterrogation(CAPABILITY_TIMEOUT_MS)
+
+    /**
+     * The interrogation of the Media Player of this media delivery session (TS 26.512 V19.3.0 clause 4.7.3): the request goes to the Media Stream
+     * Handler of the client; the call blocks until the reply or the timeout, so it is made off the main thread.
+     */
+    private fun interrogatePlayer(clientId: Int, session: ClientSessionData, mediaDeliverySessionId: String): Set<String> {
+        val capabilities = capabilityInterrogation.interrogate("$clientId/$mediaDeliverySessionId") {
+            reply(SessionHandlerMessageTypes.GET_PLAYER_CAPABILITIES, mapOf(Keys.MEDIA_DELIVERY_SESSION_IDENTIFIER to mediaDeliverySessionId), session.messenger)
+        }
+        Log.i(TAG, "capabilities of the Media Player of media delivery session $mediaDeliverySessionId: ${capabilities.ifEmpty { "none (none reported)" }}")
+        return capabilities
+    }
+
+    /** The reply of the Media Stream Handler to the interrogation: the capabilities of table 13.2.4-2 */
+    fun handleGetPlayerCapabilitiesReply(msg: Message) {
+        val data: Bundle = msg.data
+        val sessionId = data.getString(Keys.MEDIA_DELIVERY_SESSION_IDENTIFIER) ?: return
+        capabilityInterrogation.onReply("${ClientKey.of(msg)}/$sessionId", data.getStringArrayList(Keys.CAPABILITIES))
+    }
 
     /** The service of the media delivery session of this client; null when the client has none (createMediaDeliverySession() was not called) */
     fun serviceOf(clientId: Int, mediaDeliverySessionId: String?): DynamicPolicyService? {
@@ -70,7 +98,8 @@ class DynamicPolicyController(
             { session.domainNames.ifEmpty { listOfNotNull(hostOf(session.generalStatus?.mediaEntryPointUrl)) } },
             { OffsetDateTime.now() },
             { event -> outgoingMessageHandler.sendNotification(event.name, event.payload.toBundle(), session.messenger) },
-            { ueLocation() }
+            { ueLocation() },
+            { interrogatePlayer(clientId, session, session.mediaDeliverySessionId) }
         )
         created.subscribeTopic = { subscribeTopic(clientId, it) }
         created.unsubscribeTopic = { unsubscribeTopic(clientId, it) }
@@ -150,6 +179,28 @@ class DynamicPolicyController(
         scope.launch {
             val result = service.activate(reference, volume, component, downlink, uplink)
             reply(SessionHandlerMessageTypes.ACTIVATE_POLICY_REPLY, service.activationReply(reference, result), replyTo)
+        }
+    }
+
+    /**
+     * OPERATION_POINT_CHANGED (TS 26.510 V19.2.0 clause 5.4.3): the Media Access Function names the new Service Operation Point and its target QoS;
+     * a Dynamic Policy is instantiated for it unless the one in force satisfies it. The Media Session Handler takes these notifications from every
+     * client, which is what the subscription of clause 5.4.3 comes to here. There is no reply: the events of the activation tell the outcome.
+     */
+    fun handleOperationPointChanged(msg: Message) {
+        val clientId = ClientKey.of(msg)
+        val data: Bundle = msg.data
+        val sessionId = data.getString(Keys.MEDIA_DELIVERY_SESSION_IDENTIFIER)
+        val reference = data.getString(Keys.SERVICE_OPERATION_POINT_REFERENCE) ?: return
+        val downlink = data.getString(Keys.TARGET_DOWNLINK_BIT_RATE)
+        val uplink = data.getString(Keys.TARGET_UPLINK_BIT_RATE)
+        val service = serviceOf(clientId, sessionId) ?: run {
+            Log.w(TAG, "OPERATION_POINT_CHANGED for [$sessionId]: no media delivery session")
+            return
+        }
+        scope.launch {
+            val result = service.onOperationPointChanged(reference, downlink, uplink)
+            Log.i(TAG, "OPERATION_POINT_CHANGED [$reference] of $sessionId: " + if (result != null) "a Dynamic Policy was instantiated" else "nothing instantiated, ${service.lastFailure}")
         }
     }
 
