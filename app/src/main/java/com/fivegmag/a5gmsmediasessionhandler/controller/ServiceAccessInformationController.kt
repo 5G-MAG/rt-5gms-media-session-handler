@@ -18,7 +18,6 @@ import retrofit2.Response
 import retrofit2.Retrofit
 import java.lang.Exception
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import java.util.Properties
 import java.util.TimeZone
@@ -53,7 +52,8 @@ class ServiceAccessInformationController(
         val m5BaseUrl: String? = bundle.getString("m5BaseUrl")
         Log.i(SessionController.TAG, "Setting M5 endpoint to $m5BaseUrl")
         if (m5BaseUrl != null) {
-            resetAfterM5Change(clientId)
+            clientsSessionData[clientId]?.serviceAccessInformationSessionData =
+                ServiceAccessInformationSessionData()
             val retrofit = retrofitBuilder
                 .baseUrl(m5BaseUrl)
                 .build()
@@ -62,33 +62,33 @@ class ServiceAccessInformationController(
         }
     }
 
-    private fun resetAfterM5Change(clientId: Int) {
-        resetClientSession(clientId)
-        clientsSessionData[clientId]?.serviceAccessInformationSessionData =
-            ServiceAccessInformationSessionData()
-    }
-
     override fun resetClientSession(clientId: Int) {
-        stopUpdateTimer(clientId)
-        clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation =
-            null
-        clientsSessionData[clientId]?.serviceAccessInformationSessionData?.responseHeaders = null
+        clientsSessionData[clientId]?.let { client ->
+            client.serviceAccessInformationSessionData.requestTimer?.cancel()
+            client.serviceAccessInformationSessionData = ServiceAccessInformationSessionData(
+                api = client.serviceAccessInformationSessionData.api
+            )
+        }
     }
 
     fun stopUpdateTimer(
         clientId: Int
     ) {
-        if (clientsSessionData[clientId]?.serviceAccessInformationSessionData?.requestTimer != null) {
-            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.requestTimer?.cancel()
-            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.requestTimer = null
+        clientsSessionData[clientId]?.let { client ->
+            val playbackContext = client.serviceAccessInformationSessionData
+            playbackContext.requestTimer?.cancel()
+            // Invalidate in-flight responses even when the delivery session continues.
+            client.serviceAccessInformationSessionData = playbackContext.copy(requestTimer = null)
         }
     }
 
     suspend fun updateServiceAccessInformation(
         serviceListEntry: ServiceListEntry?,
-        clientId: Int
+        clientId: Int,
+        mediaDeliverySessionId: String
     ): ServiceAccessInformation? {
-
+        if (clientsSessionData[clientId]?.mediaDeliverySessionId != mediaDeliverySessionId) return null
+        val playbackContext = clientsSessionData[clientId]?.serviceAccessInformationSessionData
         val provisioningSessionId: String = serviceListEntry!!.provisioningSessionId
         val call: Call<ServiceAccessInformation>? =
             clientsSessionData[clientId]?.serviceAccessInformationSessionData?.api?.fetchServiceAccessInformation(
@@ -96,14 +96,23 @@ class ServiceAccessInformationController(
                 null,
                 null
             )
+        if (call == null) {
+            Log.w(TAG, "No SAI API call available; using entry points from the ServiceListEntry")
+            return null
+        }
         return suspendCancellableCoroutine { continuation ->
-            call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
+            call.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
 
                 override fun onResponse(
                     call: Call<ServiceAccessInformation?>,
                     response: Response<ServiceAccessInformation?>
                 ) {
-
+                    if (clientsSessionData[clientId]?.mediaDeliverySessionId != mediaDeliverySessionId ||
+                        clientsSessionData[clientId]?.serviceAccessInformationSessionData !== playbackContext
+                    ) {
+                        continuation.resume(null)
+                        return
+                    }
                     processServiceAccessInformationResponse(
                         response,
                         clientId,
@@ -125,8 +134,7 @@ class ServiceAccessInformationController(
 
             // Cancel the network request if the coroutine is cancelled
             continuation.invokeOnCancellation {
-                call?.cancel()
-                continuation.resume(null)
+                call.cancel()
             }
 
         }
@@ -177,6 +185,8 @@ class ServiceAccessInformationController(
         sendingUid: Int,
         provisioningSessionId: String
     ) {
+        val mediaDeliverySessionId = clientsSessionData[sendingUid]?.mediaDeliverySessionId ?: return
+        val playbackContext = clientsSessionData[sendingUid]?.serviceAccessInformationSessionData
         // Get MaxAge. If an age header is present, that value shall be subtracted from the value defined in max-age.
         var periodByMaxAgeHeader = getMaxAge(headers)
 
@@ -198,6 +208,9 @@ class ServiceAccessInformationController(
         timer.schedule(
             object : TimerTask() {
                 override fun run() {
+                    if (clientsSessionData[sendingUid]?.mediaDeliverySessionId != mediaDeliverySessionId ||
+                        clientsSessionData[sendingUid]?.serviceAccessInformationSessionData !== playbackContext
+                    ) return
                     val call: Call<ServiceAccessInformation>? =
                         clientsSessionData[sendingUid]?.serviceAccessInformationSessionData?.api?.fetchServiceAccessInformation(
                             provisioningSessionId,
@@ -214,7 +227,9 @@ class ServiceAccessInformationController(
                             call: Call<ServiceAccessInformation?>,
                             response: Response<ServiceAccessInformation?>
                         ) {
-
+                            if (clientsSessionData[sendingUid]?.mediaDeliverySessionId != mediaDeliverySessionId ||
+                                clientsSessionData[sendingUid]?.serviceAccessInformationSessionData !== playbackContext
+                            ) return
                             processServiceAccessInformationResponse(
                                 response,
                                 sendingUid,
@@ -263,9 +278,8 @@ class ServiceAccessInformationController(
                 val dateFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.ENGLISH)
                 dateFormat.timeZone = TimeZone.getTimeZone("UTC")
                 val expHeaderFormattedDate = dateFormat.parse(dateInExpHeader)
-                val currentDate = dateFormat.format(Date(System.currentTimeMillis()))
-                val currentFormattedDate = dateFormat.parse(currentDate)
-                val difference = abs(currentFormattedDate!!.time - expHeaderFormattedDate!!.time)
+                val currentTimeInSeconds = System.currentTimeMillis() / 1000
+                val difference = abs(currentTimeInSeconds * 1000 - expHeaderFormattedDate!!.time)
                 periodByExpiresHeader = difference / 1000
             }
 
