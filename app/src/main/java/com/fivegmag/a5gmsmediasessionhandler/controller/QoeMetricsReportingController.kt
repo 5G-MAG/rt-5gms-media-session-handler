@@ -103,6 +103,13 @@ class QoeMetricsReportingController(
 
     private fun nowMs(): Long = System.nanoTime() / 1_000_000L
 
+    /**
+     * A CMCD scheme (TS 26.512 V19.3.0 table 7.8.1-1) reports in-band at M4d, not in M5 reports: the Media Session Handler arms no reporting timer,
+     * asks the Media Player for no report and uses no reporting endpoint for it. reportingInterval, samplingPeriod, the thresholds and dataNetworkName
+     * belong to M5 reports and are not applied.
+     */
+    private fun isCmcd(configuration: ClientMetricsReportingConfiguration): Boolean = CmcdSchemes.KEYS.containsKey(configuration.scheme)
+
     private fun windowOf(configuration: ClientMetricsReportingConfiguration) =
         ReportingWindow(configuration.reportingStartOffset, configuration.reportingDuration)
 
@@ -399,6 +406,8 @@ class QoeMetricsReportingController(
         if (!(entry.drawn && CmcdSchemes.KEYS.containsKey(clientMetricsReportingConfiguration.scheme))) {
             entry.selected = shouldReportAccordingToSamplePercentage(clientMetricsReportingConfiguration.samplePercentage)
             entry.drawnForSamplePercentage = clientMetricsReportingConfiguration.samplePercentage
+            // the player is told this draw for a CMCD configuration, so it is not repeated
+            if (isCmcd(clientMetricsReportingConfiguration)) entry.drawn = true
         }
         if (entry.selected) activate(clientId, entry)
         initializeReportingTimerForConfiguration(
@@ -413,6 +422,7 @@ class QoeMetricsReportingController(
         delay: Long?,
         clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration
     ) {
+        if (isCmcd(clientMetricsReportingConfiguration)) return
         setReportingEndpoint(clientId, clientMetricsReportingConfiguration)
 
         val qoeMetricsReportingSessionDataEntry =
@@ -459,6 +469,7 @@ class QoeMetricsReportingController(
         delay: Long? = null,
         clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration
     ) {
+        if (isCmcd(clientMetricsReportingConfiguration)) return
 
         val qoeMetricsReportingSessionDataEntry = getQoeMetricsReportingSessionDataEntry(
             clientId,
@@ -600,6 +611,7 @@ class QoeMetricsReportingController(
         clientId: Int,
         clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration
     ) {
+        if (isCmcd(clientMetricsReportingConfiguration)) return
 
         val qoeMetricsRequest =
             QoeMetricsRequest(
@@ -667,6 +679,33 @@ class QoeMetricsReportingController(
             updatedConfigurations
         )
 
+        // the player adds the CMCD keys to its requests, so it is told the configurations in force whenever one of them changes
+        if (cmcdConfigurationsOf(serviceAccessInformationUpdatedEvent.previousServiceAccessInformation) !=
+            cmcdConfigurationsOf(serviceAccessInformationUpdatedEvent.updatedServiceAccessInformation)
+        ) {
+            updateCmcdConfigurations(clientId, serviceAccessInformationUpdatedEvent.updatedServiceAccessInformation)
+        }
+    }
+
+    private fun cmcdConfigurationsOf(serviceAccessInformation: ServiceAccessInformation?): List<ClientMetricsReportingConfiguration> =
+        serviceAccessInformation?.clientMetricsReportingConfigurations?.filter { isCmcd(it) }.orEmpty()
+
+    /**
+     * TS 26.510 V19.2.0 clause 5.3.5.1: "...decide whether to activate the metrics reporting procedure for a particular media delivery session at
+     * the start of that session and whenever any Client Metrics Reporting Configuration changes in the related Service Access Information."
+     * The CMCD configurations that are in force now (after the draw of samplePercentage and the filters of the session) go to the Media Stream
+     * Handler, and the check of the locationFilter starts again for them.
+     */
+    private fun updateCmcdConfigurations(clientId: Int, serviceAccessInformation: ServiceAccessInformation?) {
+        val mediaEntryPointUrl = clientsSessionData[clientId]?.generalStatus?.mediaEntryPointUrl
+        val requests = getQoeMetricsRequests(clientId, serviceAccessInformation, mediaEntryPointUrl).filter { CmcdSchemes.KEYS.containsKey(it.scheme) }
+        val messenger = clientsSessionData[clientId]?.messenger
+        if (messenger != null) {
+            val bundle = Bundle()
+            bundle.putParcelableArrayList(SessionHandlerBundleKeys.CMCD_CONFIGURATIONS, ArrayList(requests))
+            outgoingMessageHandler.sendMessage(SessionHandlerMessageTypes.CMCD_CONFIGURATION_UPDATE, bundle, messenger)
+        }
+        startCmcdLocationUpdates(clientId, serviceAccessInformation, mediaEntryPointUrl)
     }
 
     private fun handleNoReportingConfigurations(
@@ -738,8 +777,8 @@ class QoeMetricsReportingController(
                     updatedConfiguration.metricsReportingConfigurationId
                 )
 
-            // if the list of endpoints is empty we stop reporting. No need to check anything else
-            if (updatedConfiguration.serverAddresses.isEmpty()) {
+            // if the list of endpoints is empty we stop reporting. No need to check anything else; a CMCD configuration has no M5 endpoint
+            if (!isCmcd(updatedConfiguration) && updatedConfiguration.serverAddresses.isEmpty()) {
                 stopReportingTimer(clientId)
                 if (qoeMetricsReportingSessionDataEntry != null) {
                     qoeMetricsReportingSessionDataEntry.reportingSelectedServerAddress =

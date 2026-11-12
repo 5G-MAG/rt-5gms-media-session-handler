@@ -44,6 +44,9 @@ class ImplicitLaunch private constructor(
     val accessToken: String? get() = parameters.accessToken
     val serviceOperationPoint: String? get() = parameters.serviceOperationPoint
 
+    /** The client-data-reporting-mode of the URL (cmcd-headers or cmcd-query, table 12.4-1), handed on to the Media Stream Handler; null when omitted */
+    val clientDataReportingMode: String? get() = parameters.clientDataReportingMode
+
     /** The status for the requesting application if the launch does not succeed; a step that finds a reason sets it (the Media AF is the default) */
     var failureStatus = STATUS_BAD_GATEWAY
         private set

@@ -19,6 +19,7 @@ import com.fivegmag.a5gmscommonlibrary.session.PlaybackRequest
 import com.fivegmag.a5gmsmediasessionhandler.controller.ClientKey
 import com.fivegmag.a5gmsmediasessionhandler.controller.CivicLookup
 import com.fivegmag.a5gmsmediasessionhandler.controller.LocationFilter
+import com.fivegmag.a5gmsmediasessionhandler.controller.ClientDataReportingParser
 import com.fivegmag.a5gmsmediasessionhandler.controller.ManifestMetricsConfiguration
 import com.fivegmag.a5gmsmediasessionhandler.controller.AndroidFlowEndpoints
 import com.fivegmag.a5gmsmediasessionhandler.controller.ConsumptionReportingController
@@ -296,7 +297,10 @@ class IncomingMessageHandler(
             ) {
                 mediaEntryPointUrl = finalEntryPoints[0].locator
                 // clause 4.9.2 of TS 26.512: a client metrics configuration in the manifest is used for the session
-                val manifestConfigurations = withContext(Dispatchers.IO) { fetchManifestMetricsConfigurations(finalEntryPoints[0], mediaDeliverySessionId) }
+                val manifest = withContext(Dispatchers.IO) { fetchManifest(finalEntryPoints[0], mediaDeliverySessionId) }
+                val manifestConfigurations = manifest?.let { ManifestMetricsConfiguration.parse(it.first) } ?: emptyList()
+                // clause 10.5.1: the client data reporting for CMCD that the Media Player Entry declares goes to the Media Stream Handler
+                val clientDataReporting = manifest?.let { ClientDataReportingParser.parse(it.first, it.second) }.orEmpty()
                 if (manifestConfigurations.isNotEmpty()) {
                     val converted = ArrayList(manifestConfigurations.mapIndexed { index, c -> c.toClientConfiguration(index) })
                     serviceAccessInformation.clientMetricsReportingConfigurations = converted
@@ -323,7 +327,9 @@ class IncomingMessageHandler(
                         mediaDeliverySessionId,
                         serviceListEntry.name.ifEmpty { null },
                         launch?.deliveryProtocols,
-                        launch?.multipathMode
+                        launch?.multipathMode,
+                        launch?.clientDataReportingMode,
+                        clientDataReporting.takeIf { it.isNotEmpty() }?.let { ArrayList(it) }
                     )
                 val responseBundle = Bundle()
                 responseBundle.putParcelable("playbackRequest", playbackRequest)
@@ -394,22 +400,22 @@ class IncomingMessageHandler(
         }
     }
 
-    /** The client metrics configurations that the manifest of a DASH Media Entry Point carries; none for another kind of entry point */
-    private fun fetchManifestMetricsConfigurations(entryPoint: EntryPoint, mediaDeliverySessionId: String?): List<ManifestMetricsConfiguration> {
+    /** The manifest of a DASH Media Entry Point and its URL after any redirects (for its metrics configurations and client data reporting); null for another kind of entry point */
+    private fun fetchManifest(entryPoint: EntryPoint, mediaDeliverySessionId: String?): Pair<String, String>? {
         val locator = entryPoint.locator
         val isDash = entryPoint.contentType == ContentTypes.DASH || locator.substringBefore('?').lowercase().endsWith(".mpd")
-        if (!isDash || !(locator.startsWith("http://") || locator.startsWith("https://"))) return emptyList()
+        if (!isDash || !(locator.startsWith("http://") || locator.startsWith("https://"))) return null
         return try {
             val builder = okhttp3.Request.Builder().url(locator)
             // the request goes to the Media AS at reference point M4: it cites the media delivery session like the requests of the Media Stream Handler (clause 10.1A of TS 26.512)
             mediaDeliverySessionId?.let { builder.header(SessionIdentifierHeader.NAME, SessionIdentifierHeader.value(it)) }
             val request = builder.build()
             okHttpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) emptyList() else ManifestMetricsConfiguration.parse(response.body()?.string() ?: "")
+                if (!response.isSuccessful) null else Pair(response.body()?.string() ?: "", response.request().url().toString())
             }
         } catch (e: Exception) {
             Log.w(TAG, "The manifest cannot be read for its metrics configuration: " + e.message)
-            emptyList()
+            null
         }
     }
 

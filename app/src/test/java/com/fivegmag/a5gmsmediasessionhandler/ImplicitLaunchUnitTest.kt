@@ -152,6 +152,14 @@ class ImplicitLaunchUnitTest {
         assertNull(launch().multipathMode)
     }
 
+    // table 12.4-1 client-data-reporting-mode: handed on as written; omitted, nothing is handed on
+    @Test
+    fun theClientDataReportingModeIsTakenFromTheUrl() {
+        assertEquals("cmcd-query", launch("?client-data-reporting-mode=cmcd-query").clientDataReportingMode)
+        assertEquals("cmcd-headers", launch("?client-data-reporting-mode=cmcd-headers").clientDataReportingMode)
+        assertNull(launch().clientDataReportingMode)
+    }
+
     // the text has no value for a protocol that is not listed: it is a suggestion, so it is dropped
     @Test
     fun aDeliveryProtocolThatIsNotListedIsDropped() {
