@@ -6,6 +6,7 @@ import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerEvents
 import com.fivegmag.a5gmscommonlibrary.models.ClientPolicySpecification
 import com.fivegmag.a5gmscommonlibrary.models.NetworkAssistanceSession
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
+import com.fivegmag.a5gmscommonlibrary.models.TypedLocation
 import com.fivegmag.a5gmsmediasessionhandler.network.M5Result
 import com.fivegmag.a5gmsmediasessionhandler.network.NetworkAssistanceM5Client
 
@@ -31,7 +32,8 @@ class NetworkAssistanceService(
     private val domainNames: () -> List<String>,
     private val activePolicyTemplateId: () -> String?,
     private val activeRequestedQoS: () -> ClientPolicySpecification?,
-    private val emit: (ClientEvent) -> Unit
+    private val emit: (ClientEvent) -> Unit,
+    private val location: () -> TypedLocation? = { null }
 ) {
     var lastFailure: String? = null
         private set
@@ -62,7 +64,9 @@ class NetworkAssistanceService(
         val ue = flowEndpoints.ueIpv4Address() ?: return fail("the UE has no IPv4 address")
         val flow = domainNames().flatMap { flowEndpoints.resolve(it) }.let { DynamicPolicyRequests.flowDescriptions(ue, it) }.firstOrNull()
             ?: return fail("the Media AS domain name(s) of the media delivery session do not resolve to an IPv4 address")
-        val request = DynamicPolicyRequests.networkAssistanceSession(mediaDeliverySessionId, flow, template, componentReference, requested)
+        val request = DynamicPolicyRequests.networkAssistanceSession(
+            mediaDeliverySessionId, flow, template, componentReference, requested, DynamicPolicyRequests.locationFor(sai, location)
+        )
         val result: M5Result<NetworkAssistanceSession> =
             if (held?.naSessionId != null) m5.replace(sai.provisioningSessionId, held.naSessionId!!, request)
             else m5.create(sai.provisioningSessionId, request)

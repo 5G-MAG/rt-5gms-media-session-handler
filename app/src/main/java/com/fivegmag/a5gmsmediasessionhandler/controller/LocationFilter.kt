@@ -8,7 +8,9 @@ import android.telephony.CellInfoNr
 import android.telephony.CellIdentityLte
 import android.telephony.CellIdentityNr
 import android.telephony.TelephonyManager
+import com.fivegmag.a5gmscommonlibrary.models.CellIdentifierType
 import com.fivegmag.a5gmscommonlibrary.models.LocationArea5G
+import com.fivegmag.a5gmscommonlibrary.models.TypedLocation
 
 /** The cell that the UE is registered on: the PLMN, the tracking area code and the cell identity (NR or E-UTRA) */
 data class UeCell(val mcc: String?, val mnc: String?, val tac: Long?, val nrCellId: Long?, val eutraCellId: Long?)
@@ -20,6 +22,16 @@ data class UeCell(val mcc: String?, val mnc: String?, val tac: Long?, val nrCell
  * is inside one of the shapes (GeographicShapes) or at one of the civic addresses (CivicLookup). Without a filter the UE is everywhere.
  */
 object LocationFilter {
+    /** The cell as a TypedLocation (table 7.3.3.8-1), in the form that the Media Stream Handler gives it in consumption reports: MCC, MNC and the cell identity; null when the cell is not known */
+    fun typedLocationOf(cell: UeCell?): TypedLocation? {
+        if (cell?.mcc == null || cell.mnc == null) return null
+        return when {
+            cell.nrCellId != null -> TypedLocation(CellIdentifierType.NCGI, "${cell.mcc}${cell.mnc}${cell.nrCellId}")
+            cell.eutraCellId != null -> TypedLocation(CellIdentifierType.ECGI, "${cell.mcc}${cell.mnc}${cell.eutraCellId}")
+            else -> null
+        }
+    }
+
     fun isLocated(filter: List<LocationArea5G>?, cell: UeCell?, position: UePosition? = null, civic: UeCivic? = null): Boolean {
         if (filter.isNullOrEmpty()) return true
         return filter.any { area ->

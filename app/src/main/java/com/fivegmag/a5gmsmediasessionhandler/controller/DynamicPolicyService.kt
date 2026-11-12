@@ -9,6 +9,7 @@ import com.fivegmag.a5gmscommonlibrary.models.DynamicPolicyStatus
 import com.fivegmag.a5gmscommonlibrary.models.PolicyTemplateBinding
 import com.fivegmag.a5gmscommonlibrary.models.QosMonitoringReport
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
+import com.fivegmag.a5gmscommonlibrary.models.TypedLocation
 import com.fivegmag.a5gmsmediasessionhandler.network.DynamicPolicyM5Client
 import com.fivegmag.a5gmsmediasessionhandler.network.M5Result
 import java.time.OffsetDateTime
@@ -40,7 +41,7 @@ data class ActivationResult(
  * block on the M5 operations; the caller runs them off the main thread. Each method reports why it failed in lastFailure.
  *
  * The scope of the policy is all application flows that match the Media AS domain name(s) of the media delivery session (clause 11.3.1.2);
- * the Media AF accepts only 5_TUPLE descriptions, so the domain names are resolved to the addresses of the Media AS.
+ * the flows are described by one of the methods of sdfMethods (a domain name as it is, or the addresses of the Media AS that it resolves to).
  *
  * L4S: this client cannot mark packets with ECN and does not try. It reads l4SEnabled and qoSMonitoringEnabled from the Media AF, returns
  * them, sends L4S_ENABLED and QOS_MONITORING_ENABLED when they are true and keeps them in the status; it never sets l4SRequired or
@@ -53,7 +54,8 @@ class DynamicPolicyService(
     private val endpoints: () -> FlowEndpoints?,
     private val domainNames: () -> List<String>,
     private val now: () -> OffsetDateTime,
-    private val emit: (ClientEvent) -> Unit
+    private val emit: (ClientEvent) -> Unit,
+    private val location: () -> TypedLocation? = { null }
 ) {
     var lastFailure: String? = null
         private set
@@ -126,15 +128,25 @@ class DynamicPolicyService(
 
         val domains = domainNames()
         if (domains.isEmpty()) return fail("the media delivery session has no Media AS domain name")
-        val flowEndpoints = endpoints() ?: return fail("the network of the UE is not known")
-        val ue = flowEndpoints.ueIpv4Address() ?: return fail("the UE has no IPv4 address")
-        val addresses = domains.flatMap { flowEndpoints.resolve(it) }
-        if (addresses.isEmpty()) return fail("the Media AS domain name(s) do not resolve to an IPv4 address")
+        // sdfMethods of the Service Access Information says how the application flows are described
+        val sdfMethods = sai.dynamicPolicyInvocationConfiguration?.sdfMethods
+        val method = DynamicPolicyRequests.filterMethodFor(sdfMethods)
+            ?: return fail("none of the Service Data Flow description methods $sdfMethods can be used")
+        var ue = ""
+        var addresses = emptyList<String>()
+        // a domain name is described as it is: neither the UE address nor the addresses of the Media AS are needed
+        if (method != DynamicPolicyRequests.FILTER_METHOD_DOMAIN_NAME) {
+            val flowEndpoints = endpoints() ?: return fail("the network of the UE is not known")
+            ue = flowEndpoints.ueIpv4Address() ?: return fail("the UE has no IPv4 address")
+            addresses = domains.flatMap { flowEndpoints.resolve(it) }
+            if (addresses.isEmpty()) return fail("the Media AS domain name(s) do not resolve to an IPv4 address")
+        }
         val m5 = clientFor(sai) ?: return fail("the Service Access Information has no Dynamic Policy invocation server")
 
         val request = DynamicPolicyRequests.dynamicPolicy(
-            mediaDeliverySessionId, binding, DynamicPolicyRequests.flowDescriptions(ue, addresses), componentReference,
-            DynamicPolicyRequests.qosSpecification(targetDownlinkBitRate, targetUplinkBitRate), window, estimatedTransferVolume
+            mediaDeliverySessionId, binding, DynamicPolicyRequests.flowDescriptions(method, ue, addresses, domains), componentReference,
+            DynamicPolicyRequests.qosSpecification(targetDownlinkBitRate, targetUplinkBitRate), window, estimatedTransferVolume,
+            DynamicPolicyRequests.locationFor(sai, location)
         )
         val held = policy
         val result: M5Result<DynamicPolicy> =

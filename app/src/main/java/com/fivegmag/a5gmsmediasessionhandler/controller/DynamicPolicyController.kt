@@ -35,6 +35,9 @@ class DynamicPolicyController(
 
     var endpoints: () -> FlowEndpoints? = { null }
 
+    /** The location of the UE (set by the owner), for the locationReporting of the Service Access Information */
+    var ueLocation: () -> com.fivegmag.a5gmscommonlibrary.models.TypedLocation? = { null }
+
     /** Obtains a new access token for a client (set by the incoming message handler); false when it could not be obtained */
     var renewAccessToken: ((Int) -> Boolean)? = null
 
@@ -66,7 +69,8 @@ class DynamicPolicyController(
             { endpoints() },
             { session.domainNames.ifEmpty { listOfNotNull(hostOf(session.generalStatus?.mediaEntryPointUrl)) } },
             { OffsetDateTime.now() },
-            { event -> outgoingMessageHandler.sendNotification(event.name, event.payload.toBundle(), session.messenger) }
+            { event -> outgoingMessageHandler.sendNotification(event.name, event.payload.toBundle(), session.messenger) },
+            { ueLocation() }
         )
         created.subscribeTopic = { subscribeTopic(clientId, it) }
         created.unsubscribeTopic = { unsubscribeTopic(clientId, it) }

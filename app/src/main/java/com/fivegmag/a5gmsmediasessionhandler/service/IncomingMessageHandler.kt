@@ -693,6 +693,8 @@ class IncomingMessageHandler(
         dynamicPolicyController.hasClientCredentials = { serviceAccessInformationController.hasClientCredentials() }
         networkAssistanceController.hasClientCredentials = { serviceAccessInformationController.hasClientCredentials() }
         networkAssistanceController.endpoints = dynamicPolicyController.endpoints
+        dynamicPolicyController.ueLocation = { context?.let { LocationFilter.typedLocationOf(LocationFilter.currentCell(it)) } }
+        networkAssistanceController.ueLocation = dynamicPolicyController.ueLocation
         serviceAccessInformationController.onStreamingAccessUpdated = ::notifyStreamingAccessUpdated
         serviceAccessInformationController.onAccessDenied = ::notifySessionHandlingError
         notificationChannelController = NotificationChannelController(

@@ -11,6 +11,7 @@ import com.fivegmag.a5gmscommonlibrary.models.IpPacketFilterSet
 import com.fivegmag.a5gmscommonlibrary.models.NetworkAssistanceSession
 import com.fivegmag.a5gmscommonlibrary.models.PolicyTemplateBinding
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
+import com.fivegmag.a5gmscommonlibrary.models.TypedLocation
 import com.fivegmag.a5gmscommonlibrary.models.UnidirectionalBitRateSpecification
 import com.fivegmag.a5gmscommonlibrary.models.UsageThreshold
 import java.time.OffsetDateTime
@@ -23,6 +24,8 @@ import java.time.format.DateTimeParseException
  */
 object DynamicPolicyRequests {
     const val FILTER_METHOD_5_TUPLE = "5_TUPLE"
+    const val FILTER_METHOD_2_TUPLE = "2_TUPLE"
+    const val FILTER_METHOD_DOMAIN_NAME = "DOMAIN_NAME"
     const val PROTOCOL_TCP = 6
 
     /** The Service Operation Point of a media delivery session: the policy template binding that carries this externalReference */
@@ -41,6 +44,38 @@ object DynamicPolicyRequests {
         OffsetDateTime.parse(window.timeWindow.startTime) to OffsetDateTime.parse(window.timeWindow.stopTime)
     } catch (_: DateTimeParseException) {
         null
+    }
+
+    /**
+     * The location of the UE for a request (tables 9.3.3.1-1 and 9.4.3.1-1): given when locationReporting of the Service Access Information is
+     * true; "If false or omitted, UE location shall not be populated" (table 9.2.3.1-1 of the Provisioning Session).
+     */
+    fun locationFor(serviceAccessInformation: ServiceAccessInformation, location: () -> TypedLocation?): TypedLocation? =
+        if (serviceAccessInformation.locationReporting) location() else null
+
+    /**
+     * The Service Data Flow description method to use (sdfMethods of the dynamicPolicyInvocationConfiguration, TS 26.510 V19.2.0 table 9.2.3.1-1:
+     * "A list of Service Data Flow description methods ... to be used to describe the application flows"): only a method of the list is used.
+     * 5_TUPLE if it is listed, else the first listed one of the others that can be built from what the client knows (2_TUPLE, DOMAIN_NAME;
+     * TYPE_OF_SERVICE_MARKING and FLOW_LABEL need values that the client does not have). Null when the list names none of them. A Service Access
+     * Information without the list (it is mandatory) keeps 5_TUPLE.
+     */
+    fun filterMethodFor(sdfMethods: List<String>?): String? {
+        if (sdfMethods.isNullOrEmpty()) return FILTER_METHOD_5_TUPLE
+        if (FILTER_METHOD_5_TUPLE in sdfMethods) return FILTER_METHOD_5_TUPLE
+        return sdfMethods.firstOrNull { it == FILTER_METHOD_2_TUPLE || it == FILTER_METHOD_DOMAIN_NAME }
+    }
+
+    /**
+     * The application flows of the Media AS for a description method of clause 7.3.4.2: 5_TUPLE as below; 2_TUPLE is the source (the UE) and the
+     * destination (the Media AS) address only; DOMAIN_NAME is the domain name of the Media AS (exactly one of packetFilter and domainName, table 7.3.3.2-1).
+     */
+    fun flowDescriptions(method: String, ueAddress: String, mediaAsAddresses: List<String>, mediaAsDomainNames: List<String>): List<ApplicationFlowDescription> = when (method) {
+        FILTER_METHOD_2_TUPLE -> mediaAsAddresses.distinct().map {
+            ApplicationFlowDescription(FILTER_METHOD_2_TUPLE, IpPacketFilterSet("BIDIRECTIONAL", IpAddr(ueAddress), IpAddr(it)))
+        }
+        FILTER_METHOD_DOMAIN_NAME -> mediaAsDomainNames.distinct().map { ApplicationFlowDescription(FILTER_METHOD_DOMAIN_NAME, domainName = it) }
+        else -> flowDescriptions(ueAddress, mediaAsAddresses)
     }
 
     /**
@@ -81,7 +116,8 @@ object DynamicPolicyRequests {
         componentReference: String?,
         qosSpecification: ClientPolicySpecification?,
         window: BdtWindow?,
-        estimatedTransferVolume: Long?
+        estimatedTransferVolume: Long?,
+        location: TypedLocation? = null
     ): DynamicPolicy = DynamicPolicy(
         sessionId = mediaDeliverySessionId,
         policyTemplateId = binding.policyTemplateId,
@@ -90,7 +126,8 @@ object DynamicPolicyRequests {
         }),
         bdtSpecification = window?.let {
             ClientBdtSpecification(arrayListOf(it), estimatedTransferVolume?.let { v -> UsageThreshold(totalVolume = v) })
-        }
+        },
+        location = location
     )
 
     /**
@@ -102,12 +139,14 @@ object DynamicPolicyRequests {
         flow: ApplicationFlowDescription,
         policyTemplateId: String?,
         componentReference: String?,
-        requestedQoS: ClientPolicySpecification? = null
+        requestedQoS: ClientPolicySpecification? = null,
+        location: TypedLocation? = null
     ) = NetworkAssistanceSession(
         sessionId = mediaDeliverySessionId,
         applicationFlowDescription = flow,
         policyTemplateId = policyTemplateId,
         componentReference = if (policyTemplateId != null) componentReference else null,
-        requestedQoS = if (policyTemplateId != null) requestedQoS else null
+        requestedQoS = if (policyTemplateId != null) requestedQoS else null,
+        location = location
     )
 }

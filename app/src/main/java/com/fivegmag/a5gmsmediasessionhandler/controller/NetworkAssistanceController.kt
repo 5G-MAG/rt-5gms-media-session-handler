@@ -26,6 +26,9 @@ class NetworkAssistanceController(
 
     var endpoints: () -> FlowEndpoints? = { null }
 
+    /** The location of the UE (set by the owner), for the locationReporting of the Service Access Information */
+    var ueLocation: () -> com.fivegmag.a5gmscommonlibrary.models.TypedLocation? = { null }
+
     /** Obtains a new access token for a client (set by the incoming message handler); false when it could not be obtained */
     var renewAccessToken: ((Int) -> Boolean)? = null
 
@@ -57,7 +60,8 @@ class NetworkAssistanceController(
             { session.domainNames.ifEmpty { listOfNotNull(hostOf(session.generalStatus?.mediaEntryPointUrl)) } },
             { dynamicPolicyController.serviceOf(clientId, session.mediaDeliverySessionId)?.activePolicyTemplateId },
             { dynamicPolicyController.serviceOf(clientId, session.mediaDeliverySessionId)?.activeRequestedQoS },
-            { event -> outgoingMessageHandler.sendNotification(event.name, event.payload.toBundle(), session.messenger) }
+            { event -> outgoingMessageHandler.sendNotification(event.name, event.payload.toBundle(), session.messenger) },
+            { ueLocation() }
         )
         dynamicPolicyController.serviceOf(clientId, session.mediaDeliverySessionId)?.onPolicyChanged = { scope.launch { created.policyChanged() } }
         created.subscribeTopic = { subscribeTopic(clientId, it) }
