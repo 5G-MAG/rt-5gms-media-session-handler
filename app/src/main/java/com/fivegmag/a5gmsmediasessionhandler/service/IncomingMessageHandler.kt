@@ -185,7 +185,6 @@ class IncomingMessageHandler(
                         entryPoints = finalEntryPoints,
                         consumptionRequest = consumptionRequest,
                         qoeMetricsRequests = qoeMetricsRequests,
-                        mediaStreamingSessionIdentifier = mediaDeliverySessionId,
                         mediaDeliverySessionId = mediaDeliverySessionId
                     )
                 val responseBundle = Bundle()
