@@ -47,6 +47,17 @@ Inter Process Communication (IPC) with other Android libraries and applications,
 [Media Stream Handler](https://github.com/5G-MAG/rt-5gms-media-stream-handler) and the
 [5GMSd-Aware Application](https://github.com/5G-MAG/rt-5gms-application).
 
+### 3GPP Service URLs
+
+The Media Session Handler is the URL handler for `launch.3gppservices.org` and the initial path element `/ms`
+(TS 26.512 clause 4.8.3.1), declared by the intent filter of `ServiceUrlActivity`. An application requests a
+URL with an `ACTION_VIEW` intent addressed to this package (an implicit intent also offers the browsers). The
+extra `launchClientMessenger` carries the Messenger that the application registered, so that the launch is
+the one of that client and playback is triggered in its Media Stream Handler; the HTTP status of clause 4.8.3.4
+is the extra `httpResponseCode` of the activity result. Without the extra the invoker is anonymous: only media
+session handling is initiated, and a URL that asks for a Media Stream Handler is refused with 501. The
+Media Stream Handler library offers `serviceUrlIntent()` for this.
+
 ## Specification
 
 The repository names ETSI TS 126.501 but no version.

@@ -98,6 +98,9 @@ class ImplicitLaunch private constructor(
         /** The Service Access Information holds nothing that the URL asks for: no Media Entry Point, no Service Operation Point, no window */
         const val STATUS_NOT_FOUND = 404
 
+        /** The URL asks for a Media Stream Handler and its invoker has none (an anonymous invoker of the intent entry, clause 4.8.3.1) */
+        const val STATUS_NOT_IMPLEMENTED = 501
+
         /** The Media AF gave no Service Access Information or refused the Dynamic Policy */
         const val STATUS_BAD_GATEWAY = 502
 

@@ -42,6 +42,27 @@
                 android:value="" />
         </activity>
 
+        <!-- TS 26.512 V19.3.0 clause 4.8.3.1: the URL handler for launch.3gppservices.org and the initial path element /ms -->
+        <activity
+            android:name=".ServiceUrlActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+                <data android:host="launch.3gppservices.org" />
+                <data android:path="/ms" />
+                <data android:pathPrefix="/ms/" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".service.MediaSessionHandlerMessengerService"
             android:exported="true">

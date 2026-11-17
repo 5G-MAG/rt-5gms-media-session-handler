@@ -3,6 +3,7 @@ package com.fivegmag.a5gmsmediasessionhandler.service
 import android.os.Bundle
 import com.fivegmag.a5gmsmediasessionhandler.network.SessionIdentifierHeader
 import android.os.Handler
+import android.os.Looper
 import android.os.Message
 import android.os.Messenger
 import android.util.Log
@@ -43,7 +44,9 @@ import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.time.OffsetDateTime
+import java.util.Objects
 import java.util.Properties
+import java.util.UUID
 
 class IncomingMessageHandler(
     private val clientsSessionData: HashMap<Int, ClientSessionData>,
@@ -178,6 +181,7 @@ class IncomingMessageHandler(
     }
 
     fun reset() {
+        anonymousClients.clear()
         inactivityWatch.reset()
         notificationChannelController.reset()
         networkAssistanceController.reset()
@@ -485,7 +489,8 @@ class IncomingMessageHandler(
      * Implicit service launch (TS 26.510 V19.2.0 clause 5.4.2.2, clause 6; TS 26.512 V19.3.0 clause 4.8.3) with the 3GPP Service URL of the message.
      * The media delivery session is the one of the sending client, as with createMediaDeliverySession(); the sender is also the Media Stream
      * Handler that the Media Session Handler invokes with the Media Entry Point. The reply carries only the HTTP status (clause 4.8.3.4); the
-     * media delivery session identifier is not returned (clause 5.4.2.2). The entry by an intent filter (clause 4.8.3.1) is not part of this class.
+     * media delivery session identifier is not returned (clause 5.4.2.2). The entry by an intent filter (clause 4.8.3.1) is
+     * launchServiceUrlByIntent().
      */
     private fun handleLaunchServiceUrl(msg: Message) {
         val clientId = ClientKey.of(msg)
@@ -497,6 +502,66 @@ class IncomingMessageHandler(
             replyToLaunch(if (launch == null) prepared.status else ImplicitLaunch.STATUS_BAD_REQUEST, responseMessenger)
             return
         }
+        runLaunch(clientId, launch, responseMessenger) { replyToLaunch(it, responseMessenger) }
+    }
+
+    // the invokers of the intent entry that have no Messenger of their own: their media delivery session has no client that sends messages
+    private val anonymousClients = HashSet<Int>()
+
+    /** Called when the last media delivery session of an anonymous invoker has ended, so that the service that keeps them alive can stop */
+    var onAnonymousSessionsEnded: (() -> Unit)? = null
+
+    /** Whether media delivery sessions of anonymous invokers are running: the service must not reset them */
+    fun hasAnonymousSessions(): Boolean = anonymousClients.isNotEmpty()
+
+    /**
+     * The entry of a 3GPP Service URL by an intent filter (TS 26.512 V19.3.0 clause 4.8.3.1; the Media Session Handler is launched when an application
+     * requests the URL). The intent names the invoker by the Messenger that the invoker registered (an unforgeable handle on its client context): the
+     * launch then runs as for LAUNCH_SERVICE_URL of that client, with the same Media Stream Handler. An invoker with no registered Messenger is
+     * anonymous: it has no Media Stream Handler for the Media Session Handler to invoke, so a URL that asks for one is refused with 501 and
+     * nothing is started; otherwise only media session handling is initiated (clause 12.4, last paragraph), and the session ends after the period of
+     * inactivity (clause 5.4.2.2). The HTTP status goes to onStatus (clause 4.8.3.4 names no code).
+     */
+    fun launchServiceUrlByIntent(serviceUrl: String, invoker: Messenger?, onStatus: (Int) -> Unit) {
+        val prepared = ImplicitLaunch.prepare(serviceUrl)
+        val launch = prepared.launch
+        if (launch == null) {
+            onStatus(prepared.status)
+            return
+        }
+        if (invoker != null) {
+            val clientId = clientsSessionData.entries.firstOrNull { it.value.messenger == invoker }?.key
+            if (clientId == null) {
+                Log.w(TAG, "The service URL intent names a Messenger that is not a registered client")
+                onStatus(ImplicitLaunch.STATUS_BAD_REQUEST)
+                return
+            }
+            runLaunch(clientId, launch, invoker, onStatus)
+            return
+        }
+        if (launch.launchesMedia) {
+            onStatus(ImplicitLaunch.STATUS_NOT_IMPLEMENTED)
+            return
+        }
+        // the events of the session have no recipient: this Messenger drops them
+        val anonymousMessenger = Messenger(Handler(Looper.getMainLooper()))
+        val clientId = Objects.hash("service-url-intent", UUID.randomUUID().toString())
+        clientsSessionData[clientId] = ClientSessionData(anonymousMessenger)
+        anonymousClients.add(clientId)
+        runLaunch(clientId, launch, anonymousMessenger) { status ->
+            if (status >= 400) releaseAnonymousClient(clientId)
+            onStatus(status)
+        }
+    }
+
+    private fun releaseAnonymousClient(clientId: Int) {
+        if (!anonymousClients.remove(clientId)) return
+        clientsSessionData.remove(clientId)
+        if (anonymousClients.isEmpty()) onAnonymousSessionsEnded?.invoke()
+    }
+
+    /** The launch of the 3GPP Service URL for the client; onStatus gets the HTTP status for the invoker (clause 4.8.3.4) when it is known */
+    private fun runLaunch(clientId: Int, launch: ImplicitLaunch, responseMessenger: Messenger?, onStatus: (Int) -> Unit) {
         // clause 4.8.3.2: the Media AF is the one that af-host-address (or the default host name) names
         serviceAccessInformationController.setM5Endpoint(clientId, launch.m5BaseUrl)
         val entryPoints = launch.mediaEntryPoint?.let { arrayListOf(EntryPoint(it, contentTypeOfUrl(it), null)) }
@@ -508,7 +573,7 @@ class IncomingMessageHandler(
             // a launch that fails leaves nothing running; the status is the answer (clause 4.8.3.4)
             if (!succeeded && session != null) terminateMediaDeliverySession(clientId, session, session.mediaDeliverySessionId, null)
             if (succeeded) inactivityWatch.watch(clientId)
-            replyToLaunch(if (succeeded) ImplicitLaunch.STATUS_OK else launch.failureStatus, responseMessenger)
+            onStatus(if (succeeded) ImplicitLaunch.STATUS_OK else launch.failureStatus)
         }
     }
 
@@ -546,6 +611,7 @@ class IncomingMessageHandler(
         }
         Log.i(TAG, "Client $clientId was inactive: the implicitly launched media delivery session ends")
         terminateMediaDeliverySession(clientId, session, session.mediaDeliverySessionId, session.messenger)
+        releaseAnonymousClient(clientId)
     }
 
     /** destroyMediaDeliverySession() (table 11.2.2.2-1): release the session and send SESSION_HANDLING_TERMINATED */
