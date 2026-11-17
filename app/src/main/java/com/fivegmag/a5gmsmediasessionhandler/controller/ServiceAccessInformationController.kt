@@ -405,6 +405,12 @@ class ServiceAccessInformationController(
                             t: Throwable
                         ) {
                             call.cancel()
+                            // clause 5.3.2.3: the Media Session Handler checks periodically; a check that gets no answer does not end the checking,
+                            // unless the timer was stopped meanwhile (the media delivery session ended)
+                            val data = clientsSessionData[sendingUid]?.serviceAccessInformationSessionData
+                            if (data?.requestTimer != null) {
+                                startServiceAccessInformationUpdateTimer(data.responseHeaders ?: Headers.of(), sendingUid, provisioningSessionId)
+                            }
                         }
                     })
                 }
