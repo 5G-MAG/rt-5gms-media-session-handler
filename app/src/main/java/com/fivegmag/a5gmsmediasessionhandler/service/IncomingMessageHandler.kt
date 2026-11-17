@@ -518,8 +518,8 @@ class IncomingMessageHandler(
      * The entry of a 3GPP Service URL by an intent filter (TS 26.512 V19.3.0 clause 4.8.3.1; the Media Session Handler is launched when an application
      * requests the URL). The intent names the invoker by the Messenger that the invoker registered (an unforgeable handle on its client context): the
      * launch then runs as for LAUNCH_SERVICE_URL of that client, with the same Media Stream Handler. An invoker with no registered Messenger is
-     * anonymous: it has no Media Stream Handler for the Media Session Handler to invoke, so a URL that asks for one is refused with 501 and
-     * nothing is started; otherwise only media session handling is initiated (clause 12.4, last paragraph), and the session ends after the period of
+     * anonymous: a URL that asks for a Media Stream Handler is run with the one client that has registered (a design choice, the text does not say
+     * how to find one); with none or several registered it is refused with 501 and nothing is started. Otherwise only media session handling is initiated (clause 12.4, last paragraph), and the session ends after the period of
      * inactivity (clause 5.4.2.2). The HTTP status goes to onStatus (clause 4.8.3.4 names no code).
      */
     fun launchServiceUrlByIntent(serviceUrl: String, invoker: Messenger?, onStatus: (Int) -> Unit) {
@@ -540,7 +540,16 @@ class IncomingMessageHandler(
             return
         }
         if (launch.launchesMedia) {
-            onStatus(ImplicitLaunch.STATUS_NOT_IMPLEMENTED)
+            // clause 4.8.3.3 items 1 and 2: the Media Session Handler invokes the Media Stream Handler. The text does not say how an invoker without one
+            // finds it; the choice is the narrowest: the one client that has registered. With none or several there is no handler that can be told apart
+            // (a client declares no content type or profile), so the URL is refused and nothing is started.
+            val handlers = clientsSessionData.keys.filter { it !in anonymousClients }
+            val handler = handlers.singleOrNull()?.let { clientsSessionData[it] }
+            if (handler == null) {
+                onStatus(ImplicitLaunch.STATUS_NOT_IMPLEMENTED)
+                return
+            }
+            runLaunch(handlers.single(), launch, handler.messenger, onStatus)
             return
         }
         // the events of the session have no recipient: this Messenger drops them

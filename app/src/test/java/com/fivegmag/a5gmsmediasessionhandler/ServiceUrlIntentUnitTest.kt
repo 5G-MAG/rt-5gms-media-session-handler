@@ -70,6 +70,17 @@ class ServiceUrlIntentUnitTest {
         }
     }
 
+    // with several registered clients no Media Stream Handler can be told apart (a client declares no content type or profile): nothing starts
+    @Test
+    fun anAnonymousInvokerThatAsksForMediaWithSeveralRegisteredClientsGetsNotImplemented() {
+        sessions[1] = ClientSessionData(Messenger(null as Handler?))
+        sessions[2] = ClientSessionData(Messenger(null as Handler?))
+        assertEquals(501, byIntent("http://launch.3gppservices.org/ms/svc-1?af-host-address=$afAddress&media-entry-point=http%3A%2F%2Fas.example.net%2Fm.mpd", null))
+        assertEquals(0, af.requests.size)
+        assertEquals(2, sessions.size)
+        assertFalse(handler.hasAnonymousSessions())
+    }
+
     // the manifest declares exactly the handler that clause 4.8.3.1 asks for
     @Test
     fun theManifestRegistersTheUrlHandlerForTheDomainNameAndTheInitialPathElement() {

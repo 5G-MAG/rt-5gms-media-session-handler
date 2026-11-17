@@ -55,7 +55,9 @@ URL with an `ACTION_VIEW` intent addressed to this package (an implicit intent a
 extra `launchClientMessenger` carries the Messenger that the application registered, so that the launch is
 the one of that client and playback is triggered in its Media Stream Handler; the HTTP status of clause 4.8.3.4
 is the extra `httpResponseCode` of the activity result. Without the extra the invoker is anonymous: only media
-session handling is initiated, and a URL that asks for a Media Stream Handler is refused with 501. The
+session handling is initiated. A URL that asks for a Media Stream Handler is run with the client that has registered
+when there is exactly one (a design choice: TS 26.512 clause 4.8.3.3 does not say how to find a Media Stream Handler);
+with none or several registered it is refused with 501. The
 Media Stream Handler library offers `serviceUrlIntent()` for this.
 
 ## Specification
