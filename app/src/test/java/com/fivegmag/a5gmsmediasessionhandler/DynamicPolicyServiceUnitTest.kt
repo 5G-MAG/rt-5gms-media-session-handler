@@ -53,10 +53,10 @@ class DynamicPolicyServiceUnitTest {
         override fun resolve(domainName: String) = if (domainName == "media.example") resolved else emptyList()
     }
 
-    private fun service(): DynamicPolicyService {
+    private fun service(flowsOfOtherSessions: () -> List<com.fivegmag.a5gmscommonlibrary.models.ApplicationFlowDescription> = { emptyList() }): DynamicPolicyService {
         val retrofit = Retrofit.Builder().baseUrl(af.baseUrl).addConverterFactory(GsonConverterFactory.create()).client(OkHttpClient()).build()
         val client = DynamicPolicyM5Client(retrofit.create(IDynamicPolicyApi::class.java), null)
-        return DynamicPolicyService("s1", { sai }, { client }, { endpoints }, { domains }, { now }, { events.add(it) }, playerCapabilities = { interrogations++; capabilities })
+        return DynamicPolicyService("s1", { sai }, { client }, { endpoints }, { domains }, { now }, { events.add(it) }, playerCapabilities = { interrogations++; capabilities }, flowsOfOtherSessions = flowsOfOtherSessions)
     }
 
     @After
@@ -380,6 +380,32 @@ class DynamicPolicyServiceUnitTest {
         s.onNotification(notified(policyJson("pt-qos", qosMonitoring = true)), DynamicPolicyService.REASON_QOS_MONITORING_RESULTS)
         s.release()
         assertNull(af.requests.last().ifMatch)
+    }
+
+    // Clause 5.3.3.2: a Media Client shall not attempt to instantiate more than one Dynamic Policy Instance at the same time that cites the same flow
+    @Test
+    fun aFlowThatAnotherSessionOfTheClientHasAPolicyForIsNotInstantiatedAgain() {
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos")))
+        val first = service()
+        assertNotNull(first.activate("sop-qos", null, null, "6 Mbps", null))
+        val second = service { first.flowsInForce }
+        assertNull(second.activate("sop-qos", null, null, "6 Mbps", null))
+        assertEquals(1, af.requests.size)
+        assertTrue(second.lastFailure!!.contains("same application flow"))
+        // once the other session has released its policy the flow is free
+        af.answer("DELETE", base + "d1", MediaAfDouble.Response(204))
+        first.release()
+        assertNotNull(second.activate("sop-qos", null, null, "6 Mbps", null))
+    }
+
+    // the policy in force of the session itself is replaced, not refused
+    @Test
+    fun aSessionMayReplaceItsOwnPolicyForTheSameFlow() {
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos")))
+        af.answer("PUT", base + "d1", MediaAfDouble.Response(200, policyJson("pt-qos")))
+        val s = service { emptyList() }
+        s.activate("sop-qos", null, null, "6 Mbps", null)
+        assertNotNull(s.activate("sop-qos", null, null, "7 Mbps", null))
     }
 
     // ---- the notification channel ----

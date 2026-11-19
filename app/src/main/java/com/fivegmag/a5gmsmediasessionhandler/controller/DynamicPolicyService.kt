@@ -3,6 +3,7 @@ package com.fivegmag.a5gmsmediasessionhandler.controller
 import com.fivegmag.a5gmscommonlibrary.helpers.MediaPlayerCapabilities
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerBundleKeys as Keys
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerEvents
+import com.fivegmag.a5gmscommonlibrary.models.ApplicationFlowDescription
 import com.fivegmag.a5gmscommonlibrary.models.BdtWindow
 import com.fivegmag.a5gmscommonlibrary.models.ClientPolicySpecification
 import com.fivegmag.a5gmscommonlibrary.models.DynamicPolicy
@@ -64,7 +65,9 @@ class DynamicPolicyService(
     private val emit: (ClientEvent) -> Unit,
     private val location: () -> TypedLocation? = { null },
     /** The capabilities of the Media Player of the media delivery session (table 13.2.4-2); blocks while the Media Player is interrogated */
-    private val playerCapabilities: () -> Set<String> = { emptySet() }
+    private val playerCapabilities: () -> Set<String> = { emptySet() },
+    /** The flows that the Dynamic Policy Instances of the other media delivery sessions of this Media Client cite (clause 5.3.3.2) */
+    private val flowsOfOtherSessions: () -> List<ApplicationFlowDescription> = { emptyList() }
 ) {
     var lastFailure: String? = null
         private set
@@ -79,6 +82,10 @@ class DynamicPolicyService(
     private var policy: DynamicPolicy? = null
     private var serviceOperationPointReference: String? = null
     private var provisioningSessionId: String? = null
+
+    /** The flows that the policy in force cites; read by the other media delivery sessions, so it does not take the lock of this one */
+    @Volatile var flowsInForce: List<ApplicationFlowDescription> = emptyList()
+        private set
     private var client: DynamicPolicyM5Client? = null
     // the strong entity tag of the instance that the Media AF last gave (response or notification), supplied as If-Match on update and delete (clause 7.1.4.4)
     private var policyTag: String? = null
@@ -174,6 +181,13 @@ class DynamicPolicyService(
             ), window, estimatedTransferVolume,
             DynamicPolicyRequests.locationFor(sai, location)
         )
+        // clause 5.3.3.2 item 3: "A Media Client shall not attempt to instantiate more than one Dynamic Policy Instance at the same time that cites the
+        // same set of packet filters" (nor the same domainName): the policy in force of this session is replaced, that of another one is not touched
+        val requested = request.applicationFlowBindings.map { it.applicationFlowDescription }
+        val others = flowsOfOtherSessions()
+        if (requested.any { flow -> others.any { sameFlow(it, flow) } }) {
+            return fail("another media delivery session of this Media Client has a Dynamic Policy Instance for the same application flow")
+        }
         val held = policy
         val result: M5Result<DynamicPolicy> =
             if (held?.dynamicPolicyId != null) m5.replace(sai.provisioningSessionId, held.dynamicPolicyId!!, request, policyTag)
@@ -188,6 +202,7 @@ class DynamicPolicyService(
         if (result.resource != null) policyTag = result.entityTag
         if (held?.dynamicPolicyId == null) resource.dynamicPolicyId?.let(subscribeTopic)
         policy = resource
+        flowsInForce = requested
         serviceOperationPointReference = reference
         requestedSpecification = DynamicPolicyRequests.qosSpecification(targetDownlinkBitRate, targetUplinkBitRate)
         return announce(resource, reference)
@@ -294,8 +309,13 @@ class DynamicPolicyService(
         clear()
     }
 
+    private fun sameFlow(a: ApplicationFlowDescription, b: ApplicationFlowDescription): Boolean =
+        (a.packetFilter != null && a.packetFilter == b.packetFilter) ||
+            (a.domainName != null && a.domainName.equals(b.domainName, ignoreCase = true))
+
     private fun clear() {
         policy = null
+        flowsInForce = emptyList()
         policyTag = null
         serviceOperationPointReference = null
         requestedSpecification = null

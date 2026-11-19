@@ -99,7 +99,8 @@ class DynamicPolicyController(
             { OffsetDateTime.now() },
             { event -> outgoingMessageHandler.sendNotification(event.name, event.payload.toBundle(), session.messenger) },
             { ueLocation() },
-            { interrogatePlayer(clientId, session, session.mediaDeliverySessionId) }
+            { interrogatePlayer(clientId, session, session.mediaDeliverySessionId) },
+            { clientsSessionData.toList().filter { it.first != clientId }.flatMap { it.second.dynamicPolicyService?.flowsInForce.orEmpty() } }
         )
         created.subscribeTopic = { subscribeTopic(clientId, it) }
         created.unsubscribeTopic = { unsubscribeTopic(clientId, it) }
