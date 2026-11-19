@@ -259,6 +259,19 @@ class IncomingMessageHandler(
     }
 
     /**
+     * A second media delivery session on a Media Stream Handler instance that still has one replaces the first (the Media Session Handler keeps one
+     * status record for each instance). Implementation choice, text silent, see CR-023 (open item O-26): clause 11.2.2.1 says nothing about a
+     * second create on an instance that has a session; the first session ends as by destroyMediaDeliverySession() (the reporting stops, its status
+     * is released and SESSION_HANDLING_TERMINATED is sent for its identifier, table 11.2.3-2), so that the application is not left with a session
+     * that no longer exists.
+     */
+    internal fun endReplacedSession(clientId: Int, responseMessenger: Messenger?) {
+        val session = clientsSessionData[clientId] ?: return
+        if (session.generalStatus == null) return
+        terminateMediaDeliverySession(clientId, session, session.mediaDeliverySessionId, responseMessenger ?: session.messenger)
+    }
+
+    /**
      * Fetch the Service Access Information of the Provisioning Session and, if there is a Media Entry Point, hand the playback request to the
      * Media Access Function (TS 26.510 V19.2.0 clause 11.2.2.1). The general status becomes ACTIVE and SESSION_HANDLING_ACTIVATED is sent if all
      * of it succeeds; otherwise the status becomes ERRORED and ERROR_SESSION_HANDLING is sent. Returns whether it succeeded.
@@ -271,6 +284,7 @@ class IncomingMessageHandler(
         domainNames: List<String> = emptyList(),
         launch: ImplicitLaunch? = null
     ): Boolean {
+        endReplacedSession(clientId, responseMessenger)
         resetClientSession(clientId)
         clientsSessionData[clientId]?.accessToken = accessToken
         clientsSessionData[clientId]?.domainNames = domainNames
