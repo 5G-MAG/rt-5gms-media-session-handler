@@ -340,6 +340,48 @@ class DynamicPolicyServiceUnitTest {
         assertNull(s.status())
     }
 
+    // Clause 7.1.4.4: the strong entity tag that the Media AF gave for the instance is supplied as If-Match on update and delete
+    @Test
+    fun anUpdateAndTheDeletionCarryTheStrongEntityTagOfTheInstance() {
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos"), headers = mapOf("ETag" to "\"v1\"")))
+        af.answer("PUT", base + "d1", MediaAfDouble.Response(200, policyJson("pt-bdt", withWindow = true), headers = mapOf("ETag" to "\"v2\"")))
+        af.answer("DELETE", base + "d1", MediaAfDouble.Response(204))
+        val s = service()
+        s.activate("sop-qos", null, null, "6 Mbps", null)
+        s.activate("sop-bdt", 10L, null, "6 Mbps", null)
+        assertTrue(s.deactivate())
+        assertEquals(listOf(null, "\"v1\"", "\"v2\""), af.requests.map { it.ifMatch })
+    }
+
+    // RFC 9110 clause 13.1.1: a weak entity tag is not supplied; nor is one when the Media AF gave none
+    @Test
+    fun aWeakEntityTagOrNoneIsNotSuppliedAsIfMatch() {
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos"), headers = mapOf("ETag" to "W/\"v1\"")))
+        af.answer("DELETE", base + "d1", MediaAfDouble.Response(204))
+        val s = service()
+        s.activate("sop-qos", null, null, "6 Mbps", null)
+        s.release()
+        assertNull(af.requests.last().ifMatch)
+    }
+
+    // Clause 10.2.3: the entityTag of a notification is the ETag of the instance that it carries, which has replaced the one that was held
+    @Test
+    fun theEntityTagOfANotificationReplacesTheOneHeld() {
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos"), headers = mapOf("ETag" to "\"v1\"")))
+        af.answer("DELETE", base + "d1", MediaAfDouble.Response(204))
+        val s = service()
+        s.activate("sop-qos", null, null, "6 Mbps", null)
+        s.onNotification(notified(policyJson("pt-qos", qosMonitoring = true)), DynamicPolicyService.REASON_QOS_MONITORING_RESULTS, "\"v3\"")
+        s.release()
+        assertEquals("\"v3\"", af.requests.last().ifMatch)
+        // a notification without an entityTag leaves no tag, because the one held is out of date
+        af.requests.clear()
+        s.activate("sop-qos", null, null, "6 Mbps", null)
+        s.onNotification(notified(policyJson("pt-qos", qosMonitoring = true)), DynamicPolicyService.REASON_QOS_MONITORING_RESULTS)
+        s.release()
+        assertNull(af.requests.last().ifMatch)
+    }
+
     // ---- the notification channel ----
 
     private fun activated(topics: MutableList<String>? = null): DynamicPolicyService {

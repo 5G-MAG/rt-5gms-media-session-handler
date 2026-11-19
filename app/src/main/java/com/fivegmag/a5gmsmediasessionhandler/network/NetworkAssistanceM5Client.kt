@@ -25,13 +25,13 @@ class NetworkAssistanceM5Client(
     fun retrieve(provisioningSessionId: String, naSessionId: String): M5Result<NetworkAssistanceSession> =
         run { auth -> M5Calls.execute(api.retrieve(provisioningSessionId, naSessionId, auth), NetworkAssistanceSession::class.java) }
 
-    /** Update (clause 5.3.4.6) by replacement: 200 with the new state, or 204 when nothing changed */
-    fun replace(provisioningSessionId: String, naSessionId: String, session: NetworkAssistanceSession): M5Result<NetworkAssistanceSession> =
-        run { auth -> M5Calls.execute(api.replace(provisioningSessionId, naSessionId, auth, M5Calls.body(session)), NetworkAssistanceSession::class.java) }
+    /** Update (clause 5.3.4.6) by replacement: 200 with the new state, or 204 when nothing changed; ifMatch is the strong entity tag held for the resource (clause 7.1.4.4) */
+    fun replace(provisioningSessionId: String, naSessionId: String, session: NetworkAssistanceSession, ifMatch: String? = null): M5Result<NetworkAssistanceSession> =
+        run { auth -> M5Calls.execute(api.replace(provisioningSessionId, naSessionId, auth, ifMatch, M5Calls.body(session)), NetworkAssistanceSession::class.java) }
 
-    /** Destroy (clause 5.3.4.7): 204 */
-    fun destroy(provisioningSessionId: String, naSessionId: String): M5Result<Unit> =
-        run { auth -> M5Calls.execute(api.destroy(provisioningSessionId, naSessionId, auth), null) }
+    /** Destroy (clause 5.3.4.7): 204; ifMatch as for replace */
+    fun destroy(provisioningSessionId: String, naSessionId: String, ifMatch: String? = null): M5Result<Unit> =
+        run { auth -> M5Calls.execute(api.destroy(provisioningSessionId, naSessionId, auth, ifMatch), null) }
 
     /** Bit rate recommendation request (clause 5.3.4.4): 200 with a ClientPolicySpecification */
     fun recommendation(provisioningSessionId: String, naSessionId: String): M5Result<ClientPolicySpecification> =

@@ -235,6 +235,31 @@ class NetworkAssistanceServiceUnitTest {
         assertEquals(false, s.boostReply("video", false)[Keys.SUCCEEDED])
     }
 
+    // Clause 7.1.4.4: the strong entity tag of the session is supplied as If-Match on delete
+    @Test
+    fun theDeletionCarriesTheStrongEntityTagOfTheSession() {
+        af.answer("POST", base, MediaAfDouble.Response(201, naJson(), headers = mapOf("ETag" to "\"v1\"")))
+        answerRecommendation()
+        af.answer("DELETE", base + "n1", MediaAfDouble.Response(204))
+        val s = service()
+        s.requestBitRateRecommendation("video")
+        s.release()
+        assertEquals("\"v1\"", af.requests.last().ifMatch)
+    }
+
+    // Clause 10.2.3: the entityTag of a notification replaces the one held
+    @Test
+    fun theEntityTagOfANotificationReplacesTheOneHeld() {
+        af.answer("POST", base, MediaAfDouble.Response(201, naJson(), headers = mapOf("ETag" to "\"v1\"")))
+        answerRecommendation()
+        af.answer("DELETE", base + "n1", MediaAfDouble.Response(204))
+        val s = service()
+        s.requestBitRateRecommendation("video")
+        s.onNotification(notified("3 Mbps"), "\"v2\"")
+        s.release()
+        assertEquals("\"v2\"", af.requests.last().ifMatch)
+    }
+
     // Clause 5.3.4.7: the session is destroyed when the media delivery session ends, without an event
     @Test
     fun releaseDestroysTheSession() {

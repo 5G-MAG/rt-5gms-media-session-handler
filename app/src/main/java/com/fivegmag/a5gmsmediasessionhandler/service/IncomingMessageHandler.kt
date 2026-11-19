@@ -781,7 +781,7 @@ class IncomingMessageHandler(
         notificationChannelController = NotificationChannelController(
             serviceAccessInformationController::handleNotifiedServiceAccessInformation,
             dynamicPolicyController::handleNotification,
-            { clientId, session, _ -> networkAssistanceController.handleNotification(clientId, session) }
+            { clientId, session, _, entityTag -> networkAssistanceController.handleNotification(clientId, session, entityTag) }
         )
         notificationChannelController.initialize(configurationProperties)
         dynamicPolicyController.subscribeTopic = notificationChannelController::subscribe

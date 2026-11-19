@@ -232,9 +232,9 @@ class DynamicPolicyController(
     }
 
     /** A notification of the sub-topic of a Dynamic Policy Instance (clause 5.3.3.2); the service is locked while an M5 operation runs, so not on the main thread */
-    fun handleNotification(clientId: Int, notified: com.fivegmag.a5gmscommonlibrary.models.DynamicPolicy, reason: String) {
+    fun handleNotification(clientId: Int, notified: com.fivegmag.a5gmscommonlibrary.models.DynamicPolicy, reason: String, entityTag: String?) {
         val service = clientsSessionData[clientId]?.dynamicPolicyService ?: return
-        scope.launch { service.onNotification(notified, reason) }
+        scope.launch { service.onNotification(notified, reason, entityTag) }
     }
 
     /** An update of the Service Access Information may offer a new Background Data Transfer window (table 11.3.2-2) */

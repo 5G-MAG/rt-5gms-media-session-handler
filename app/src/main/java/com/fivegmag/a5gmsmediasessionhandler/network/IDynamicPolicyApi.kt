@@ -35,6 +35,7 @@ interface IDynamicPolicyApi {
         @Path("provisioningSessionId") provisioningSessionId: String,
         @Path("dynamicPolicyId") dynamicPolicyId: String,
         @Header("Authorization") authorization: String?,
+        @Header("If-Match") ifMatch: String?,
         @Body body: RequestBody
     ): Call<ResponseBody>
 
@@ -42,6 +43,7 @@ interface IDynamicPolicyApi {
     fun destroy(
         @Path("provisioningSessionId") provisioningSessionId: String,
         @Path("dynamicPolicyId") dynamicPolicyId: String,
-        @Header("Authorization") authorization: String?
+        @Header("Authorization") authorization: String?,
+        @Header("If-Match") ifMatch: String?
     ): Call<ResponseBody>
 }

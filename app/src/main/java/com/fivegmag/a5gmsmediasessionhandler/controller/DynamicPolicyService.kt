@@ -12,6 +12,7 @@ import com.fivegmag.a5gmscommonlibrary.models.QosMonitoringReport
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmscommonlibrary.models.TypedLocation
 import com.fivegmag.a5gmsmediasessionhandler.network.DynamicPolicyM5Client
+import com.fivegmag.a5gmsmediasessionhandler.network.M5Calls
 import com.fivegmag.a5gmsmediasessionhandler.network.M5Result
 import java.time.OffsetDateTime
 
@@ -79,6 +80,8 @@ class DynamicPolicyService(
     private var serviceOperationPointReference: String? = null
     private var provisioningSessionId: String? = null
     private var client: DynamicPolicyM5Client? = null
+    // the strong entity tag of the instance that the Media AF last gave (response or notification), supplied as If-Match on update and delete (clause 7.1.4.4)
+    private var policyTag: String? = null
     private var capabilities: Set<String>? = null
 
     /** The capabilities of the Media Player, interrogated at the first use (clause 4.7.3: the Media Session Handler "shall interrogate" them) and kept for the session */
@@ -173,7 +176,7 @@ class DynamicPolicyService(
         )
         val held = policy
         val result: M5Result<DynamicPolicy> =
-            if (held?.dynamicPolicyId != null) m5.replace(sai.provisioningSessionId, held.dynamicPolicyId!!, request)
+            if (held?.dynamicPolicyId != null) m5.replace(sai.provisioningSessionId, held.dynamicPolicyId!!, request, policyTag)
             else m5.create(sai.provisioningSessionId, request)
 
         if (!result.isSuccess) return refused(result, reference, isBackgroundDataTransfer)
@@ -182,6 +185,7 @@ class DynamicPolicyService(
         val resource = result.resource ?: held ?: return fail("the Media AF returned no Dynamic Policy Instance")
         client = m5
         provisioningSessionId = sai.provisioningSessionId
+        if (result.resource != null) policyTag = result.entityTag
         if (held?.dynamicPolicyId == null) resource.dynamicPolicyId?.let(subscribeTopic)
         policy = resource
         serviceOperationPointReference = reference
@@ -268,7 +272,7 @@ class DynamicPolicyService(
             lastFailure = "no Dynamic Policy is in force for this media delivery session"
             return false
         }
-        val result = m5.destroy(session, id)
+        val result = m5.destroy(session, id, policyTag)
         if (!result.isSuccess && result.code != 404 && result.code != 410) {
             lastFailure = result.problem?.detail ?: result.failure ?: "HTTP status code ${result.code}"
             return false
@@ -285,13 +289,14 @@ class DynamicPolicyService(
     fun release() {
         val id = policy?.dynamicPolicyId
         val session = provisioningSessionId
-        if (id != null && session != null) client?.destroy(session, id)
+        if (id != null && session != null) client?.destroy(session, id, policyTag)
         id?.let(unsubscribeTopic)
         clear()
     }
 
     private fun clear() {
         policy = null
+        policyTag = null
         serviceOperationPointReference = null
         requestedSpecification = null
     }
@@ -348,11 +353,13 @@ class DynamicPolicyService(
      * A notification for another instance is ignored.
      */
     @Synchronized
-    fun onNotification(notified: DynamicPolicy, reason: String) {
+    fun onNotification(notified: DynamicPolicy, reason: String, entityTag: String? = null) {
         val held = policy ?: return
         val reference = serviceOperationPointReference ?: return
         if (notified.dynamicPolicyId != held.dynamicPolicyId) return
         policy = notified
+        // clause 10.2.3: the entityTag of the notification is the ETag of the resource that it carries
+        policyTag = M5Calls.strongEntityTag(entityTag)
         if (notified.l4SEnabled == true && held.l4SEnabled != true && isL4sCapable()) emit(ClientEvent.of(SessionHandlerEvents.DynamicPolicy.L4S_ENABLED, mediaDeliverySessionId))
         if (notified.qoSMonitoringEnabled == true && held.qoSMonitoringEnabled != true && isQosCapable()) {
             emit(ClientEvent.of(SessionHandlerEvents.DynamicPolicy.QOS_MONITORING_ENABLED, mediaDeliverySessionId))

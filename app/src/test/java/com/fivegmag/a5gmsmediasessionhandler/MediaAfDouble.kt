@@ -10,7 +10,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  * response that the test has prepared for the method and path. It exists only in the tests.
  */
 class MediaAfDouble : AutoCloseable {
-    data class Request(val method: String, val path: String, val authorization: String?, val contentType: String?, val body: String)
+    data class Request(val method: String, val path: String, val authorization: String?, val contentType: String?, val body: String, val ifMatch: String? = null)
     data class Response(val code: Int, val body: String? = null, val location: String? = null, val wwwAuthenticate: String? = null, val retryAfter: String? = null, val headers: Map<String, String> = emptyMap())
 
     val requests = CopyOnWriteArrayList<Request>()
@@ -39,7 +39,7 @@ class MediaAfDouble : AutoCloseable {
         val body = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
         val path = exchange.requestURI.path
         requests.add(
-            Request(exchange.requestMethod, path, exchange.requestHeaders.getFirst("Authorization"), exchange.requestHeaders.getFirst("Content-Type"), body)
+            Request(exchange.requestMethod, path, exchange.requestHeaders.getFirst("Authorization"), exchange.requestHeaders.getFirst("Content-Type"), body, exchange.requestHeaders.getFirst("If-Match"))
         )
         val key = "${exchange.requestMethod} $path"
         val response = synchronized(queued) { queued[key]?.removeFirstOrNull() } ?: responses[key] ?: Response(404)

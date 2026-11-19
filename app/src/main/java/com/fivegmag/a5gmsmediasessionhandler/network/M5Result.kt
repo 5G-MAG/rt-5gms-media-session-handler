@@ -28,7 +28,9 @@ data class M5Result<T>(
     val location: String? = null,
     val failure: String? = null,
     /** A 401 whose WWW-Authenticate header field says error="invalid_token" (RFC 6750 clause 3.1): a new access token may be accepted */
-    val invalidToken: Boolean = false
+    val invalidToken: Boolean = false,
+    /** The strong entity tag of the resource in the ETag header field of a success response (clause 7.1.4.2); null when there is none or it is weak */
+    val entityTag: String? = null
 ) {
     val isSuccess: Boolean get() = code in 200..299
     val isUnauthorised: Boolean get() = code == 401 || code == 403
@@ -42,6 +44,9 @@ object M5Calls {
     private val json = MediaType.parse("application/json")
 
     fun body(resource: Any): RequestBody = RequestBody.create(json, gson.toJson(resource))
+
+    /** The entity tag as a value for If-Match: a strong tag (RFC 9110 clause 13.1.1, a weak tag does not match), null otherwise */
+    fun strongEntityTag(value: String?): String? = value?.trim()?.takeIf { it.isNotEmpty() && !it.startsWith("W/") }
 
     /**
      * Run [call] with [authorization]; when the Media AF answers 401 invalid_token and [renew] gives a new Authorization value, run it once more
@@ -62,7 +67,10 @@ object M5Calls {
             val location = response.headers()["Location"]
             val invalidToken = response.code() == 401 && response.headers()["WWW-Authenticate"]?.contains("invalid_token") == true
             if (response.isSuccessful) {
-                M5Result(response.code(), if (type != null && !text.isNullOrBlank()) parse(text, type) else null, null, location)
+                M5Result(
+                    response.code(), if (type != null && !text.isNullOrBlank()) parse(text, type) else null, null, location,
+                    entityTag = strongEntityTag(response.headers()["ETag"])
+                )
             } else {
                 M5Result(response.code(), null, if (text.isNullOrBlank()) null else parse(text, ProblemDetails::class.java), location, null, invalidToken)
             }

@@ -42,6 +42,7 @@ interface INetworkAssistanceApi {
         @Path("provisioningSessionId") provisioningSessionId: String,
         @Path("naSessionId") naSessionId: String,
         @Header("Authorization") authorization: String?,
+        @Header("If-Match") ifMatch: String?,
         @Body body: RequestBody
     ): Call<ResponseBody>
 
@@ -49,7 +50,8 @@ interface INetworkAssistanceApi {
     fun destroy(
         @Path("provisioningSessionId") provisioningSessionId: String,
         @Path("naSessionId") naSessionId: String,
-        @Header("Authorization") authorization: String?
+        @Header("Authorization") authorization: String?,
+        @Header("If-Match") ifMatch: String?
     ): Call<ResponseBody>
 
     @GET("provisioning-sessions/{provisioningSessionId}/network-assistance-sessions/{naSessionId}/recommendation")

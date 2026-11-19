@@ -23,12 +23,12 @@ import org.eclipse.paho.mqttv5.common.packet.MqttProperties
  * service identifier (clause 5.3.2.3). The Service Access Information update notifications published there are handed to the callback.
  * The sub-topic {externalServiceId}/{resourceId} of a Dynamic Policy Instance or a Network Assistance Session is subscribed to when the
  * resource is created and left when it is destroyed (clauses 5.3.3.2, 5.3.3.5, 5.3.4.2, 5.3.4.7); the notifications of those resources go to
- * their callbacks with the reason of the notification.
+ * their callbacks with the reason and the entity tag of the notification.
  */
 class NotificationChannelController(
     private val onServiceAccessInformation: (Int, ServiceAccessInformation) -> Unit,
-    private val onDynamicPolicy: (Int, DynamicPolicy, String) -> Unit = { _, _, _ -> },
-    private val onNetworkAssistanceSession: (Int, NetworkAssistanceSession, String) -> Unit = { _, _, _ -> }
+    private val onDynamicPolicy: (Int, DynamicPolicy, String, String?) -> Unit = { _, _, _, _ -> },
+    private val onNetworkAssistanceSession: (Int, NetworkAssistanceSession, String, String?) -> Unit = { _, _, _, _ -> }
 ) {
     companion object {
         const val TAG = "5GMS-NotificationChannelController"
@@ -83,9 +83,9 @@ class NotificationChannelController(
                     if (parsed.type == NotificationMessageParser.NOTIFICATION_SERVICE_ACCESS_INFORMATION && resource != null) {
                         mainHandler.post { onServiceAccessInformation(clientId, resource) }
                     } else if (parsed.type == NotificationMessageParser.NOTIFICATION_DYNAMIC_POLICY_INSTANCE && dynamicPolicy != null) {
-                        mainHandler.post { onDynamicPolicy(clientId, dynamicPolicy, reason) }
+                        mainHandler.post { onDynamicPolicy(clientId, dynamicPolicy, reason, parsed.entityTag) }
                     } else if (parsed.type == NotificationMessageParser.NOTIFICATION_NETWORK_ASSISTANCE_SESSION && networkAssistanceSession != null) {
-                        mainHandler.post { onNetworkAssistanceSession(clientId, networkAssistanceSession, reason) }
+                        mainHandler.post { onNetworkAssistanceSession(clientId, networkAssistanceSession, reason, parsed.entityTag) }
                     }
                 }
 

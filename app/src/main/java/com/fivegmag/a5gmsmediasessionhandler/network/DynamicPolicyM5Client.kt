@@ -23,11 +23,11 @@ class DynamicPolicyM5Client(
     fun retrieve(provisioningSessionId: String, dynamicPolicyId: String): M5Result<DynamicPolicy> =
         run { auth -> M5Calls.execute(api.retrieve(provisioningSessionId, dynamicPolicyId, auth), DynamicPolicy::class.java) }
 
-    /** Update (clause 5.3.3.4) by replacement: 200 with the new state, or 204 when nothing changed */
-    fun replace(provisioningSessionId: String, dynamicPolicyId: String, policy: DynamicPolicy): M5Result<DynamicPolicy> =
-        run { auth -> M5Calls.execute(api.replace(provisioningSessionId, dynamicPolicyId, auth, M5Calls.body(policy)), DynamicPolicy::class.java) }
+    /** Update (clause 5.3.3.4) by replacement: 200 with the new state, or 204 when nothing changed; ifMatch is the strong entity tag held for the resource (clause 7.1.4.4) */
+    fun replace(provisioningSessionId: String, dynamicPolicyId: String, policy: DynamicPolicy, ifMatch: String? = null): M5Result<DynamicPolicy> =
+        run { auth -> M5Calls.execute(api.replace(provisioningSessionId, dynamicPolicyId, auth, ifMatch, M5Calls.body(policy)), DynamicPolicy::class.java) }
 
-    /** Destroy (clause 5.3.3.5): 204 */
-    fun destroy(provisioningSessionId: String, dynamicPolicyId: String): M5Result<Unit> =
-        run { auth -> M5Calls.execute(api.destroy(provisioningSessionId, dynamicPolicyId, auth), null) }
+    /** Destroy (clause 5.3.3.5): 204; ifMatch as for replace */
+    fun destroy(provisioningSessionId: String, dynamicPolicyId: String, ifMatch: String? = null): M5Result<Unit> =
+        run { auth -> M5Calls.execute(api.destroy(provisioningSessionId, dynamicPolicyId, auth, ifMatch), null) }
 }

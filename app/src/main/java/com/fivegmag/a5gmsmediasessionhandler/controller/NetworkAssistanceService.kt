@@ -7,6 +7,7 @@ import com.fivegmag.a5gmscommonlibrary.models.ClientPolicySpecification
 import com.fivegmag.a5gmscommonlibrary.models.NetworkAssistanceSession
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmscommonlibrary.models.TypedLocation
+import com.fivegmag.a5gmsmediasessionhandler.network.M5Calls
 import com.fivegmag.a5gmsmediasessionhandler.network.M5Result
 import com.fivegmag.a5gmsmediasessionhandler.network.NetworkAssistanceM5Client
 
@@ -45,6 +46,8 @@ class NetworkAssistanceService(
     private var session: NetworkAssistanceSession? = null
     private var lastComponent: String? = null
     private var client: NetworkAssistanceM5Client? = null
+    // the strong entity tag of the session that the Media AF last gave (response or notification), supplied as If-Match on update and delete (clause 7.1.4.4)
+    private var sessionTag: String? = null
     private var provisioningSessionId: String? = null
 
     val sessionIdentifier: String? @Synchronized get() = session?.naSessionId
@@ -68,12 +71,13 @@ class NetworkAssistanceService(
             mediaDeliverySessionId, flow, template, componentReference, requested, DynamicPolicyRequests.locationFor(sai, location)
         )
         val result: M5Result<NetworkAssistanceSession> =
-            if (held?.naSessionId != null) m5.replace(sai.provisioningSessionId, held.naSessionId!!, request)
+            if (held?.naSessionId != null) m5.replace(sai.provisioningSessionId, held.naSessionId!!, request, sessionTag)
             else m5.create(sai.provisioningSessionId, request)
         if (!result.isSuccess) return fail(describe(result))
         client = m5
         provisioningSessionId = sai.provisioningSessionId
         // 204 on a replacement: nothing changed
+        if (result.resource != null) sessionTag = result.entityTag
         session = result.resource ?: held
         if (held?.naSessionId == null) session?.naSessionId?.let(subscribeTopic)
         return session
@@ -166,9 +170,10 @@ class NetworkAssistanceService(
     fun release() {
         val id = session?.naSessionId
         val provisioning = provisioningSessionId
-        if (id != null && provisioning != null) client?.destroy(provisioning, id)
+        if (id != null && provisioning != null) client?.destroy(provisioning, id, sessionTag)
         id?.let(unsubscribeTopic)
         session = null
+        sessionTag = null
     }
 
     /**
@@ -176,10 +181,12 @@ class NetworkAssistanceService(
      * changes" is BIT_RATE_RECOMMENDATION (table 11.4.2-2). A notification for another session, or one whose recommendation did not change, sends nothing.
      */
     @Synchronized
-    fun onNotification(notified: NetworkAssistanceSession) {
+    fun onNotification(notified: NetworkAssistanceSession, entityTag: String? = null) {
         val held = session ?: return
         if (notified.naSessionId != held.naSessionId) return
         session = notified
+        // clause 10.2.3: the entityTag of the notification is the ETag of the resource that it carries
+        sessionTag = M5Calls.strongEntityTag(entityTag)
         val recommended = notified.recommendedQoS ?: return
         if (recommended == held.recommendedQoS) return
         emit(

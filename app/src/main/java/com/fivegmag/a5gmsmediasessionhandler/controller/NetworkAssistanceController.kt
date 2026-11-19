@@ -127,9 +127,9 @@ class NetworkAssistanceController(
     }
 
     /** A notification of the sub-topic of a Network Assistance Session (clause 5.3.4.2); not on the main thread, see DynamicPolicyController.handleNotification */
-    fun handleNotification(clientId: Int, notified: com.fivegmag.a5gmscommonlibrary.models.NetworkAssistanceSession) {
+    fun handleNotification(clientId: Int, notified: com.fivegmag.a5gmscommonlibrary.models.NetworkAssistanceSession, entityTag: String?) {
         val service = clientsSessionData[clientId]?.networkAssistanceService ?: return
-        scope.launch { service.onNotification(notified) }
+        scope.launch { service.onNotification(notified, entityTag) }
     }
 
     /** The media delivery session ends: the Network Assistance Session is destroyed at the Media AF (clause 5.3.4.7) */
