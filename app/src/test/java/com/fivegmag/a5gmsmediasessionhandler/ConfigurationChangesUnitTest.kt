@@ -216,4 +216,51 @@ class ConfigurationChangesUnitTest {
         assertTrue(sessions[1]!!.qoeMetricsReportingSessionData["drawn"]!!.selected)
         assertFalse(sessions[1]!!.qoeMetricsReportingSessionData["notDrawn"]!!.selected)
     }
+
+    private fun consumptionSai(reportingInterval: Int?) = Gson().fromJson(
+        """{"provisioningSessionId":"ps1","clientConsumptionReportingConfiguration":{"serverAddresses":["http://127.0.0.1:1/m5/"],"samplePercentage":0,"accessReporting":false${reportingInterval?.let { ",\"reportingInterval\":$it" } ?: ""}}}""",
+        ServiceAccessInformation::class.java
+    )
+
+    // clause 5.3.6.1: the decision is made again whenever the configuration changes, not only when samplePercentage changes
+    @Test
+    fun aChangeOfTheConsumptionConfigurationIsANewDraw() {
+        session(running = true)
+        val before = consumptionSai(null)
+        sessions[1]!!.serviceAccessInformationSessionData.serviceAccessInformation = before
+        sessions[1]!!.consumptionReportingSessionData.selected = true
+        changed(before, consumptionSai(10))
+        assertFalse(sessions[1]!!.consumptionReportingSessionData.selected)
+    }
+
+    private fun metricsSai(samplingPeriod: Int) = Gson().fromJson(
+        """{"provisioningSessionId":"ps1","clientMetricsReportingConfigurations":[{"metricsReportingConfigurationId":"c1","serverAddresses":["http://127.0.0.1:1/m5/"],"scheme":"urn:3GPP:ns:PSS:DASH:QM10","samplingPeriod":$samplingPeriod,"metrics":[],"samplePercentage":0}]}""",
+        ServiceAccessInformation::class.java
+    )
+
+    // clause 5.3.5.1: the same for a Client Metrics Reporting Configuration
+    @Test
+    fun aChangeOfAMetricsConfigurationIsANewDraw() {
+        session(running = true)
+        val before = metricsSai(1000)
+        sessions[1]!!.serviceAccessInformationSessionData.serviceAccessInformation = before
+        sessions[1]!!.qoeMetricsReportingSessionData["c1"] = com.fivegmag.a5gmsmediasessionhandler.models.QoeMetricsReportingSessionDataEntry(
+            selected = true, drawnFor = before.clientMetricsReportingConfigurations!!.first()
+        )
+        changed(before, metricsSai(2000))
+        assertFalse(sessions[1]!!.qoeMetricsReportingSessionData["c1"]!!.selected)
+    }
+
+    // a configuration that did not change is not decided again
+    @Test
+    fun aConfigurationThatDidNotChangeIsNotDrawnAgain() {
+        session(running = true)
+        val before = metricsSai(1000)
+        sessions[1]!!.serviceAccessInformationSessionData.serviceAccessInformation = before
+        sessions[1]!!.qoeMetricsReportingSessionData["c1"] = com.fivegmag.a5gmsmediasessionhandler.models.QoeMetricsReportingSessionDataEntry(
+            selected = true, drawnFor = before.clientMetricsReportingConfigurations!!.first()
+        )
+        changed(before, metricsSai(1000))
+        assertTrue(sessions[1]!!.qoeMetricsReportingSessionData["c1"]!!.selected)
+    }
 }

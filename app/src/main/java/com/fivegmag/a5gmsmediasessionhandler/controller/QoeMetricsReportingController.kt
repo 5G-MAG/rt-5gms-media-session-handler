@@ -150,7 +150,7 @@ class QoeMetricsReportingController(
         val entry = session.qoeMetricsReportingSessionData.getOrPut(configuration.metricsReportingConfigurationId) { QoeMetricsReportingSessionDataEntry() }
         if (!entry.drawn) {
             entry.selected = shouldReportAccordingToSamplePercentage(configuration.samplePercentage)
-            entry.drawnForSamplePercentage = configuration.samplePercentage
+            entry.drawnFor = configuration
             entry.drawn = true
         }
         return entry.selected
@@ -407,7 +407,7 @@ class QoeMetricsReportingController(
         entry.sessionStartMs = nowMs()
         if (!(entry.drawn && CmcdSchemes.KEYS.containsKey(clientMetricsReportingConfiguration.scheme))) {
             entry.selected = shouldReportAccordingToSamplePercentage(clientMetricsReportingConfiguration.samplePercentage)
-            entry.drawnForSamplePercentage = clientMetricsReportingConfiguration.samplePercentage
+            entry.drawnFor = clientMetricsReportingConfiguration
             // the player is told this draw for a CMCD configuration, so it is not repeated
             if (isCmcd(clientMetricsReportingConfiguration)) entry.drawn = true
         }
@@ -791,11 +791,12 @@ class QoeMetricsReportingController(
                 return
             }
 
-            // a changed samplePercentage is a new draw for the rest of the session
+            // clause 5.3.5.1: whenever a Client Metrics Reporting Configuration changes the decision is made again, with a new draw of
+            // samplePercentage, which holds for the rest of the session
             if (qoeMetricsReportingSessionDataEntry != null &&
-                qoeMetricsReportingSessionDataEntry.drawnForSamplePercentage != updatedConfiguration.samplePercentage
+                qoeMetricsReportingSessionDataEntry.drawnFor != updatedConfiguration
             ) {
-                qoeMetricsReportingSessionDataEntry.drawnForSamplePercentage = updatedConfiguration.samplePercentage
+                qoeMetricsReportingSessionDataEntry.drawnFor = updatedConfiguration
                 qoeMetricsReportingSessionDataEntry.selected =
                     shouldReportAccordingToSamplePercentage(updatedConfiguration.samplePercentage)
                 if (qoeMetricsReportingSessionDataEntry.selected) {

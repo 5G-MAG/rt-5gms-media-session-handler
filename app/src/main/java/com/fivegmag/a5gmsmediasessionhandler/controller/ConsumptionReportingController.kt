@@ -372,8 +372,9 @@ class ConsumptionReportingController(
             setReportingEndpoint(clientId)
         }
 
-        // a changed samplePercentage is a new draw (TS 26.510 V19.2.0 clause 5.3.6.2): the client is selected or not for the rest of the session
-        if (previousClientConsumptionReportingConfiguration.samplePercentage != updatedClientConsumptionReportingConfiguration.samplePercentage) {
+        // clause 5.3.6.1: whenever the Client Consumption Reporting Configuration changes the decision is made again, with a new draw of
+        // samplePercentage: the client is selected or not for the rest of the session
+        if (previousClientConsumptionReportingConfiguration != updatedClientConsumptionReportingConfiguration) {
             val selected = shouldReportAccordingToSamplePercentage(updatedClientConsumptionReportingConfiguration.samplePercentage)
             clientsSessionData[clientId]?.consumptionReportingSessionData?.selected = selected
             if (selected) {

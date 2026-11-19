@@ -63,8 +63,8 @@ data class QoeMetricsReportingSessionDataEntry(
     var lastReport: String? = null,
     // clause 5.3.5.2: whether this client was selected by samplePercentage of the configuration; decided once per media delivery session
     var selected: Boolean = false,
-    // the samplePercentage that the draw was made for
-    var drawnForSamplePercentage: Float? = null,
+    // the configuration that the draw was made for; a change of the configuration is a new draw (TS 26.510 V19.2.0 clause 5.3.5.1)
+    var drawnFor: com.fivegmag.a5gmscommonlibrary.models.ClientMetricsReportingConfiguration? = null,
     // the draw was made before the playback request (a CMCD configuration) and is kept
     var drawn: Boolean = false,
     // metrics reporting of this configuration is active (METRICS_REPORTING_ACTIVATED was sent for it and STOPPED was not)
