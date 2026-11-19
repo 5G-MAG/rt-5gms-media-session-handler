@@ -33,4 +33,17 @@ class NotificationChannelCredentialsUnitTest {
     fun reconnectionStaysOn() {
         assertTrue(controller().connectionOptions().isAutomaticReconnect)
     }
+
+    // Clause 10.2.2: the sub-topics of the resources of the client are subscribed again when another channel replaces the one in use
+    @Test
+    fun theSubTopicsAreKeptWhenAnotherChannelReplacesTheOneInUse() {
+        val controller = controller()
+        controller.connect(1, "mqtt://127.0.0.1:1", "svc")
+        controller.subscribe(1, "d1")
+        controller.connect(1, "mqtt://127.0.0.1:1", "svc", keepSubTopics = true)
+        assertEquals(setOf("svc/d1"), controller.subTopicsOf(1))
+        controller.connect(1, "mqtt://127.0.0.1:1", "svc")
+        assertTrue(controller.subTopicsOf(1).isEmpty())
+        controller.reset()
+    }
 }

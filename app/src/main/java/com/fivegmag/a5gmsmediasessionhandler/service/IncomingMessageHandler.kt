@@ -777,6 +777,11 @@ class IncomingMessageHandler(
         dynamicPolicyController.ueLocation = { context?.let { LocationFilter.typedLocationOf(LocationFilter.currentCell(it)) } }
         networkAssistanceController.ueLocation = dynamicPolicyController.ueLocation
         serviceAccessInformationController.onStreamingAccessUpdated = ::notifyStreamingAccessUpdated
+        serviceAccessInformationController.onNotificationUrlChanged = { clientId, url ->
+            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.cacheKey?.externalServiceId?.let {
+                notificationChannelController.connect(clientId, url, it, keepSubTopics = true)
+            }
+        }
         serviceAccessInformationController.onAccessDenied = ::notifySessionHandlingError
         notificationChannelController = NotificationChannelController(
             serviceAccessInformationController::handleNotifiedServiceAccessInformation,

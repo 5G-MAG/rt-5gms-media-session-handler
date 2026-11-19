@@ -45,6 +45,9 @@ class ServiceAccessInformationController(
 
     /** Called when an update of the Service Access Information changes the streaming access (TS 26.510 V19.2.0 table 11.2.3-2) */
     var onStreamingAccessUpdated: ((Int, StreamingAccess) -> Unit)? = null
+
+    /** The Service Access Information of a running session nominates a notification channel that the held one did not (clause 5.3.2.3: if notificationURL is present, connect) */
+    var onNotificationUrlChanged: ((Int, String) -> Unit)? = null
     /** Called when the Media AF refuses the Media Session Handler's access token for want of scope (403 insufficient_scope), with the client identifier */
     var onAccessDenied: ((Int) -> Unit)? = null
     private var defaultServiceAccessInformationTimerInterval: Long = 0
@@ -320,6 +323,11 @@ class ServiceAccessInformationController(
             updatedStreamingAccess != previousServiceAccessInformation.streamingAccess
         ) {
             onStreamingAccessUpdated?.invoke(clientId, updatedStreamingAccess)
+        }
+
+        val notificationUrl = resource.notificationURL
+        if (previousServiceAccessInformation != null && notificationUrl != null && notificationUrl != previousServiceAccessInformation.notificationURL) {
+            onNotificationUrlChanged?.invoke(clientId, notificationUrl)
         }
 
         EventBus.getDefault().post(

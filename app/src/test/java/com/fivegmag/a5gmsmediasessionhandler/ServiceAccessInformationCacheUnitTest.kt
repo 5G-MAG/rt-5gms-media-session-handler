@@ -219,6 +219,26 @@ class ServiceAccessInformationCacheUnitTest {
         assertEquals(2, gets)
     }
 
+    // Clause 5.3.2.3: "If this property [notificationURL] is present, the Media Session Handler shall connect to the MQTT channel at the indicated endpoint"
+    @Test
+    fun anUpdateThatNominatesANotificationChannelIsFollowed() {
+        answer("Cache-Control" to "max-age=60")
+        session(1)
+        val connected = ArrayList<Pair<Int, String>>()
+        controller.onNotificationUrlChanged = { client, url -> connected.add(client to url) }
+        val first = acquire(1)!!
+        // a copy that has the same channel as the one held, or none, connects nowhere
+        controller.handleNotifiedServiceAccessInformation(1, first.copy(locationReporting = true))
+        assertEquals(emptyList<Pair<Int, String>>(), connected)
+        controller.handleNotifiedServiceAccessInformation(1, first.copy(locationReporting = true, notificationURL = "mqtts://broker.example:8883"))
+        controller.handleNotifiedServiceAccessInformation(1, first.copy(locationReporting = true, notificationURL = "mqtts://broker.example:8883", provisioningSessionId = "ps1"))
+        assertEquals(listOf(1 to "mqtts://broker.example:8883"), connected)
+        controller.handleNotifiedServiceAccessInformation(1, first.copy(notificationURL = "mqtts://other.example:8883"))
+        assertEquals(2, connected.size)
+        controller.handleNotifiedServiceAccessInformation(1, first.copy(locationReporting = true))
+        assertEquals(2, connected.size)
+    }
+
     @Test
     fun theCopyIsGoneAfterAReset() {
         answer("Cache-Control" to "max-age=60")

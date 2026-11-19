@@ -58,8 +58,17 @@ class NotificationChannelController(
         return options
     }
 
-    fun connect(clientId: Int, notificationUrl: String, externalServiceId: String) {
+    /** The sub-topics of the resources that this client created at M5 and that it is subscribed to */
+    internal fun subTopicsOf(clientId: Int): Set<String> = subTopics[clientId]?.toSet().orEmpty()
+
+    /**
+     * Connect to the notification channel and subscribe to the root topic (clause 5.3.2.3). keepSubTopics: the sub-topics of the resources that
+     * exist are subscribed again on the new channel (a channel that replaces the one in use during a media delivery session)
+     */
+    fun connect(clientId: Int, notificationUrl: String, externalServiceId: String, keepSubTopics: Boolean = false) {
+        val kept = if (keepSubTopics) subTopicsOf(clientId) else emptySet()
         disconnect(clientId)
+        if (kept.isNotEmpty()) subTopics.getOrPut(clientId) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.addAll(kept)
         externalServiceIds[clientId] = externalServiceId
         try {
             val client = MqttAsyncClient(NotificationMessageParser.brokerUri(notificationUrl), "5gms-msh-" + System.nanoTime(), MemoryPersistence())
