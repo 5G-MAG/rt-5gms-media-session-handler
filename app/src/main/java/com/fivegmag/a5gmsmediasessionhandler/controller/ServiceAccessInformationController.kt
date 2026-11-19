@@ -12,6 +12,7 @@ import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import com.fivegmag.a5gmsmediasessionhandler.models.bearer
 import com.fivegmag.a5gmsmediasessionhandler.models.ServiceAccessInformationCacheKey
 import com.fivegmag.a5gmsmediasessionhandler.models.ServiceAccessInformationSessionData
+import com.fivegmag.a5gmsmediasessionhandler.network.HttpDate
 import com.fivegmag.a5gmsmediasessionhandler.network.IServiceAccessInformationApi
 import com.fivegmag.a5gmsmediasessionhandler.network.OAuthClientCredentials
 import com.google.gson.Gson
@@ -22,11 +23,8 @@ import retrofit2.Call
 import retrofit2.Response
 import retrofit2.Retrofit
 import java.lang.Exception
-import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 import java.util.Properties
-import java.util.TimeZone
 import java.util.Timer
 import java.util.TimerTask
 import kotlin.coroutines.resume
@@ -487,9 +485,8 @@ class ServiceAccessInformationController(
 
         return try {
             if (dateInExpHeader != null) {
-                val dateFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.ENGLISH)
-                dateFormat.timeZone = TimeZone.getTimeZone("UTC")
-                val expires = dateFormat.parse(dateInExpHeader)!!.time
+                // an HTTP-date, in any of the three formats of RFC 9110 clause 5.6.7
+                val expires = HttpDate.parse(dateInExpHeader, java.time.Instant.ofEpochMilli(now))!!.toEpochMilli()
                 periodByExpiresHeader = maxOf(expires - now, 0L) / 1000
             }
 

@@ -38,7 +38,8 @@ class RefreshPeriodUnitTest {
     }
 
     private fun httpDate(millis: Long): String {
-        val format = java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", java.util.Locale.ENGLISH)
+        // an HTTP-date is in GMT (RFC 9110 clause 5.6.7)
+        val format = java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'", java.util.Locale.ENGLISH)
         format.timeZone = java.util.TimeZone.getTimeZone("UTC")
         return format.format(java.util.Date(millis))
     }
@@ -56,6 +57,17 @@ class RefreshPeriodUnitTest {
         val headers = Headers.of("Expires", httpDate(now - 3_600_000))
         assertEquals(0L, controller.getPeriodFromExpiresHeader(headers, now))
         assertEquals(1L, controller.getRefreshTimerValue(-1, controller.getPeriodFromExpiresHeader(headers, now), 10))
+    }
+
+    // RFC 9110 clause 5.6.7: a recipient of an HTTP-date accepts the three formats, the two obsolete ones too
+    @Test
+    fun anExpiresInTheObsoleteFormatsGivesTheSecondsUntilIt() {
+        val now = 1_800_000_000_000L
+        val at = java.time.Instant.ofEpochMilli(now + 100_000)
+        val rfc850 = java.time.format.DateTimeFormatter.ofPattern("EEEE, dd-MMM-yy HH:mm:ss 'GMT'", java.util.Locale.US).withZone(java.time.ZoneOffset.UTC)
+        val asctime = java.time.format.DateTimeFormatter.ofPattern("EEE MMM ppd HH:mm:ss yyyy", java.util.Locale.US).withZone(java.time.ZoneOffset.UTC)
+        assertEquals(100L, controller.getPeriodFromExpiresHeader(Headers.of("Expires", rfc850.format(at)), now))
+        assertEquals(100L, controller.getPeriodFromExpiresHeader(Headers.of("Expires", asctime.format(at)), now))
     }
 
     @Test

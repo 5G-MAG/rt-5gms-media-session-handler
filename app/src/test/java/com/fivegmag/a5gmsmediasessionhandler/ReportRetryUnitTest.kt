@@ -124,6 +124,31 @@ class ReportRetryUnitTest {
         assertEquals(0L, PendingReports.retryDelaySeconds("Wed, 21 Oct 2026 07:26:00 GMT", 30, now))
     }
 
+    // RFC 9110 clause 5.6.7: the asctime format pads a day of one digit with a space
+    @Test
+    fun anAsctimeDateWithADayOfOneDigitIsAnHttpDate() {
+        val now = java.time.Instant.parse("2026-11-06T08:48:37Z")
+        assertEquals(60L, PendingReports.retryDelaySeconds("Fri Nov  6 08:49:37 2026", 30, now))
+    }
+
+    // RFC 9110 clause 5.6.7: a two-digit year that appears to be more than 50 years in the future is the most recent year of the past with those digits
+    @Test
+    fun aTwoDigitYearMoreThanFiftyYearsAheadIsInThePast() {
+        val now = java.time.Instant.parse("2026-10-21T07:27:00Z")
+        assertEquals(0L, PendingReports.retryDelaySeconds("Sunday, 06-Nov-94 08:49:37 GMT", 30, now))
+        // 42 years ahead is in the future
+        assertTrue(PendingReports.retryDelaySeconds("Sunday, 01-Jan-68 00:00:00 GMT", 30, now) > 1_000_000_000L)
+    }
+
+    // RFC 9110 clause 10.2.3: delay-seconds = 1*DIGIT
+    @Test
+    fun aDelayThatIsNotDigitsIsNotADelay() {
+        assertEquals(30L, PendingReports.retryDelaySeconds("+5", 30))
+        assertEquals(30L, PendingReports.retryDelaySeconds("\u0665", 30))
+        assertEquals(30L, PendingReports.retryDelaySeconds("5.5", 30))
+        assertEquals(120L, PendingReports.retryDelaySeconds("120", 30))
+    }
+
     private val invalidToken = "Bearer error=\"invalid_token\""
 
     @Test

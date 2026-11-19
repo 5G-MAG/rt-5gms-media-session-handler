@@ -252,7 +252,7 @@ class ServiceAccessInformationCacheUnitTest {
 
     @Test
     fun freshnessIsTheSmallerOfMaxAgeAndExpires() {
-        val expires = java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", java.util.Locale.ENGLISH)
+        val expires = java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'", java.util.Locale.ENGLISH)
             .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date(now + 20_000))
         assertEquals(60L, controller.getFreshnessSeconds(Headers.of("Cache-Control", "max-age=60"), now))
         assertEquals(20L, controller.getFreshnessSeconds(Headers.of("Cache-Control", "max-age=60", "Expires", expires), now))
