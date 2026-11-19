@@ -1,5 +1,6 @@
 package com.fivegmag.a5gmsmediasessionhandler.controller
 
+import com.fivegmag.a5gmscommonlibrary.helpers.VrMetrics
 import com.fivegmag.a5gmscommonlibrary.models.ClientMetricsReportingConfiguration
 import org.w3c.dom.Element
 import java.io.ByteArrayInputStream
@@ -9,7 +10,7 @@ import javax.xml.parsers.DocumentBuilderFactory
  * Client metrics configuration signalled in the manifest (TS 26.512 V19.3.0 clause 4.9.2, TS 26.247 V19.1.0 clauses 10.4 and 10.5):
  * a Metrics element with the attribute metrics, and a Reporting element whose schemeIdUri is urn:3GPP:ns:PSS:DASH:QM10 and whose
  * scheme information (ThreeGPQualityReporting) names the reportingServer and may give samplePercentage, reportingInterval, format
- * (uncompressed or gzip) and apn.
+ * (uncompressed or gzip) and apn. The metrics of TS 26.118 V19.0.0 clause 9.3 are listed in the same attribute (clause 9.4.1).
  */
 data class ManifestMetricsConfiguration(
     val metricsKeys: List<String>,
@@ -156,7 +157,8 @@ data class ManifestMetricsConfiguration(
             samplePercentage = samplePercentage,
             urlFilters = null,
             samplingPeriod = samplingPeriod,
-            metrics = ArrayList(metricsKeys.map { "$QM10#$it" }),
+            // a key of TS 26.118 clause 9.3 is a term of the VR vocabulary (TS 26.512 clause E.2.2), the others are of QM10 (clause E.2.1)
+            metrics = ArrayList(metricsKeys.map { if (it in VrMetrics.KEYS) "${VrMetrics.NAMESPACE}#$it" else "$QM10#$it" }),
             reportingStartOffset = startOffset,
             reportingDuration = rangeDurationSeconds
         )

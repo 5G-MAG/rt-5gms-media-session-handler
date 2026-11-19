@@ -45,6 +45,31 @@ class ManifestMetricsConfigurationUnitTest {
         assertNull(converted.urlFilters)
     }
 
+    // TS 26.118 V19.0.0 clause 9.4.1: the metrics of clause 9.3 are listed in the same attribute, with their parameters (clauses 9.3.2 and 9.3.3); the
+    // terms of TS 26.512 V19.3.0 clause E.2.2 name them in the vocabulary of the VR metrics
+    @Test
+    fun theVrMetricsOfAManifestAreTermsOfTheVrVocabulary() {
+        val vrMpd = mpd.replace(
+            "BufferLevel(1500) AvgThroughput(2000) InitialPlayoutDelay",
+            "BufferLevel(1500) CompQualLatency(QRT=3.5,ERT=6.8,N=900) RenderedViewports(X=50,D=15,T=1500) VrDeviceInformation"
+        )
+        val c = ManifestMetricsConfiguration.parse(vrMpd)[0]
+        assertEquals(listOf("BufferLevel", "CompQualLatency", "RenderedViewports", "VrDeviceInformation"), c.metricsKeys)
+        // the sampling period is that of the first interval, as before
+        assertEquals(2L, c.samplingPeriod)
+        val converted = c.toClientConfiguration(0)
+        assertEquals("urn:3GPP:ns:PSS:DASH:QM10", converted.scheme)
+        assertEquals(
+            listOf(
+                "urn:3GPP:ns:PSS:DASH:QM10#BufferLevel",
+                "urn:3gpp:metadata:2020:VR:metrics#CompQualLatency",
+                "urn:3gpp:metadata:2020:VR:metrics#RenderedViewports",
+                "urn:3gpp:metadata:2020:VR:metrics#VrDeviceInformation"
+            ),
+            converted.metrics
+        )
+    }
+
     @Test
     fun aManifestWithoutAConfigurationOrNotXmlHasNone() {
         assertTrue(ManifestMetricsConfiguration.parse("<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\"/>").isEmpty())
