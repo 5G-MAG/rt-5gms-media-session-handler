@@ -245,6 +245,8 @@ class QoeMetricsReportingController(
         val metricsReportingConfigurationId: String? = clientMetricsReportingConfiguration.metricsReportingConfigurationId
         val qoeMetricsReportingSessionDataEntry =
             clientSessionData.qoeMetricsReportingSessionData[metricsReportingConfigurationId] ?: return
+        // clause 5.3.5.2: with several Media AF addresses, one is chosen at random for each submission
+        if (clientMetricsReportingConfiguration.serverAddresses.size > 1) setReportingEndpoint(clientId, clientMetricsReportingConfiguration)
         val api = qoeMetricsReportingSessionDataEntry.api ?: return
         val mediaType = MediaType.parse(ContentTypes.QOE_REPORT_XML)
         val requestBody: RequestBody? = metricsString?.let { RequestBody.create(mediaType, it) }

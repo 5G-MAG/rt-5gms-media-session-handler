@@ -83,6 +83,10 @@ class ConsumptionReportingController(
         val mediaType = MediaType.parse(ContentTypes.JSON)
         val requestBody: RequestBody = RequestBody.create(mediaType, reportWithSessionId)
 
+        // clause 5.3.6.2: with several Media AF addresses, one is chosen at random for each submission
+        val addresses = clientSessionData?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientConsumptionReportingConfiguration?.serverAddresses
+        if (addresses != null && addresses.size > 1) setReportingEndpoint(clientId)
+
         if (clientSessionData?.consumptionReportingSessionData?.api != null) {
             val call: Call<Void>? =
                 clientSessionData.consumptionReportingSessionData.api!!.sendConsumptionReport(
