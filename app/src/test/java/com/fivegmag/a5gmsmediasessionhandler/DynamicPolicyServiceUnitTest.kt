@@ -93,6 +93,33 @@ class DynamicPolicyServiceUnitTest {
         assertEquals("2026-10-28T11:00:00Z", reply[Keys.WINDOW_END])
     }
 
+    // Implementation choice, text silent, see CR-023 (O-7): table 11.3.1.1-2 makes maximumDataTransferVolume mandatory but no source has a volume
+    // for a window; the reply carries none, not a made-up value
+    @Test
+    fun theReplyOfGetBdtInfoCarriesNoMadeUpMaximumDataTransferVolume() {
+        val s = service()
+        val reply = s.bdtInfoReply("sop-bdt", s.getBdtInfo("sop-bdt"))
+        assertEquals(true, reply[Keys.SUCCEEDED])
+        assertFalse(reply.containsKey(Keys.MAXIMUM_DATA_TRANSFER_VOLUME))
+    }
+
+    // Implementation choices, text silent or in conflict, see CR-011 and CR-002 (O-8, O-9): the recommended rates are the maximumRequestedBitRate of
+    // the qosSpecification of the policy, and both directions are returned (table 11.3.1.2-2 makes both mandatory)
+    @Test
+    fun theRecommendedRatesAreTheMaximumRequestedRatesOfBothDirections() {
+        val json = policyJson("pt-qos").replace(
+            """"downlinkBitRates":{"maximumRequestedBitRate":"6 Mbps","minimumDesiredBitRate":"6 Mbps","minimumRequestedBitRate":"6 Mbps"}""",
+            """"downlinkBitRates":{"maximumRequestedBitRate":"8 Mbps","minimumDesiredBitRate":"4 Mbps","minimumRequestedBitRate":"2 Mbps"}"""
+        ).replace(
+            """"uplinkBitRates":{"maximumRequestedBitRate":"1 Mbps","minimumDesiredBitRate":"1 Mbps","minimumRequestedBitRate":"1 Mbps"}""",
+            """"uplinkBitRates":{"maximumRequestedBitRate":"3 Mbps","minimumDesiredBitRate":"2 Mbps","minimumRequestedBitRate":"1 Mbps"}"""
+        )
+        af.answer("POST", base, MediaAfDouble.Response(201, json, "http://af/d1"))
+        val result = service().activate("sop-qos", null)!!
+        assertEquals("8 Mbps", result.recommendedDownlinkBitRate)
+        assertEquals("3 Mbps", result.recommendedUplinkBitRate)
+    }
+
     @Test
     fun getBdtInfoOfAnUnknownPointIsAnError() {
         val s = service()

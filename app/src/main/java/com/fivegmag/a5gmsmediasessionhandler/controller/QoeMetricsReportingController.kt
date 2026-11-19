@@ -216,7 +216,9 @@ class QoeMetricsReportingController(
         }
 
         // a report that was not requested comes from the end of the media delivery session: it is sent while the window of
-        // reportingStartOffset and reportingDuration is open (clause 5.3.5.2 and table 8.7.3.1-1)
+        // reportingStartOffset and reportingDuration is open (clause 5.3.5.2 and table 8.7.3.1-1). Implementation choice, texts conflicting, see
+        // CR-022 (open item O-22): clause 5.3.5.1 lists the end of the session as a trigger, table 8.11.3.1 (the property) says that the client
+        // stops reporting after reportingDuration; the property is the more specific, so no report is sent once the window has ended.
         if (qoeMetricsReportingSessionDataEntry.reportRequested) {
             qoeMetricsReportingSessionDataEntry.reportRequested = false
         } else if (!windowOf(clientMetricsReportingConfiguration).contains(nowMs() - qoeMetricsReportingSessionDataEntry.sessionStartMs)) {
@@ -643,6 +645,9 @@ class QoeMetricsReportingController(
         }
     }
 
+    // A configuration that is added, removed or changed during the session takes effect during the session. Implementation choice, texts conflicting,
+    // see CR-022 (open item O-21): TS 26.247 V19.1.0 clause 10.1 says changes affect only later QoE sessions, TS 26.510 V19.2.0 clause 5.3.5.1
+    // requires activation and deactivation whenever a configuration changes; clause 5.3.5.1 is the text of the M5 procedure and is followed.
     @Subscribe(threadMode = ThreadMode.MAIN)
     override fun handleServiceAccessInformationChanges(serviceAccessInformationUpdatedEvent: ServiceAccessInformationUpdatedEvent) {
         val previousClientMetricsReportingConfigurations =

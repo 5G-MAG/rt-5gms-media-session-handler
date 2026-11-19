@@ -122,7 +122,11 @@ class DynamicPolicyService(
         return fail("the Service Operation Point [$reference] is not one of this media delivery session")
     }
 
-    /** getBDTInfo() (clause 11.3.1.1): the next Background Data Transfer window that the Service Operation Point offers */
+    /**
+     * getBDTInfo() (clause 11.3.1.1): the next Background Data Transfer window that the Service Operation Point offers. maximumDataTransferVolume
+     * of table 11.3.1.1-2 is not returned: implementation choice, text silent, see CR-023 (open item O-7). The BdtWindow of the Service Access
+     * Information (table 7.3.3.14-1) has no volume, and a zero or other made-up value would tell the application a quota that nobody gave.
+     */
     @Synchronized
     fun getBdtInfo(reference: String): BdtInfo? {
         lastFailure = null
@@ -250,7 +254,12 @@ class DynamicPolicyService(
         return fail(reason)
     }
 
-    /** The return value and the events of a policy that is in force */
+    /**
+     * The return value and the events of a policy that is in force. The recommended bit rates are the maximumRequestedBitRate of the downlink and
+     * the uplink of the qosSpecification of the Dynamic Policy Instance that the Media AF returned (implementation choices, text silent or in
+     * conflict: O-8, see CR-011 and CR-002; O-9, see CR-011: clause 5.3.4.4 names maximumBitRate, which no type has, and says to ignore the
+     * uplink for a downlink session, while table 11.3.1.2-2, the one of this operation, makes both values mandatory, so both are returned).
+     */
     private fun announce(resource: DynamicPolicy, reference: String): ActivationResult {
         val qos = resource.applicationFlowBindings.firstOrNull { it.qosSpecification != null }?.qosSpecification
         val granted = resource.bdtSpecification?.windows.orEmpty()
