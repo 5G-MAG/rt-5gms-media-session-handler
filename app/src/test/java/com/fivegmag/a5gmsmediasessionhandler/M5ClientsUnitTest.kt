@@ -1,10 +1,12 @@
 package com.fivegmag.a5gmsmediasessionhandler
 
 import com.fivegmag.a5gmscommonlibrary.models.ApplicationFlowDescription
+import com.fivegmag.a5gmscommonlibrary.models.CellIdentifierType
 import com.fivegmag.a5gmscommonlibrary.models.DynamicPolicy
 import com.fivegmag.a5gmscommonlibrary.models.IpAddr
 import com.fivegmag.a5gmscommonlibrary.models.IpPacketFilterSet
 import com.fivegmag.a5gmscommonlibrary.models.NetworkAssistanceSession
+import com.fivegmag.a5gmscommonlibrary.models.TypedLocation
 import com.fivegmag.a5gmsmediasessionhandler.network.DynamicPolicyM5Client
 import com.fivegmag.a5gmsmediasessionhandler.network.IDynamicPolicyApi
 import com.fivegmag.a5gmsmediasessionhandler.network.INetworkAssistanceApi
@@ -48,6 +50,22 @@ class M5ClientsUnitTest {
         assertTrue(request.contentType!!.startsWith("application/json"))
         assertEquals("pt1", JsonParser().parse(request.body).asJsonObject["policyTemplateId"].asString)
         assertFalse(request.body.contains("dynamicPolicyId"))
+    }
+
+    // android.os.Parcelable has a getStability() (API 29) that the Jackson mapper of the Consumption Report took for a property; Gson reads fields, so
+    // the bodies of the M5 requests carry no such property and must keep carrying none
+    @Test
+    fun theRequestBodiesHaveNoStabilityProperty() {
+        val location = TypedLocation(CellIdentifierType.NCGI, "123")
+        af.answer("POST", "$base/dynamic-policies/", MediaAfDouble.Response(201, policyJson, "http://af/x/d1"))
+        dp.create("ps1", DynamicPolicy("s1", "pt1", arrayListOf(), location = location))
+        af.answer("POST", "$base/network-assistance-sessions/", MediaAfDouble.Response(201, naJson, "http://af/x/n1"))
+        na.create("ps1", NetworkAssistanceSession("s1", flow, policyTemplateId = "pt1", location = location))
+        assertEquals(2, af.requests.size)
+        af.requests.forEach {
+            assertTrue(it.body.contains("locationIdentifierType"))
+            assertFalse(it.body.contains("stability"))
+        }
     }
 
     // Clause 5.3.3.3
