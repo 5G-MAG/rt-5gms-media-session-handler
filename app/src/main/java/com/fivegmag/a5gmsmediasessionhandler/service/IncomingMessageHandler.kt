@@ -451,13 +451,17 @@ class IncomingMessageHandler(
         val contentId = bundle.getString(SessionHandlerBundleKeys.CONTENT_ID)
         val entryPoint = bundle.getString(SessionHandlerBundleKeys.ENTRY_POINT)
         // the method gives only the URL of the Media Entry Point: its media type is taken from the name of the resource
-        val entryPoints = if (entryPoint != null) arrayListOf(EntryPoint(entryPoint, contentTypeOfUrl(entryPoint), null)) else null
+        // clause 11.2.2.1: an entryPoint that indicates a Service Operation Point makes the Media Session Handler instantiate its Dynamic Policy (a
+        // 3GPP Service URL that carries service-operation-point: implementation choice, text silent, see CR-023, open item O-6)
+        val operationPointLaunch = ImplicitLaunch.indicatingServiceOperationPoint(entryPoint)
+        val mediaEntryPoint = if (operationPointLaunch != null) operationPointLaunch.mediaEntryPoint else entryPoint
+        val entryPoints = if (mediaEntryPoint != null) arrayListOf(EntryPoint(mediaEntryPoint, contentTypeOfUrl(mediaEntryPoint), null)) else null
         val serviceListEntry = ServiceListEntry(serviceId, contentId ?: "", entryPoints)
         val accessToken = bundle.getString(SessionHandlerBundleKeys.ACCESS_TOKEN)
         val domainNames = bundle.getStringArrayList(SessionHandlerBundleKeys.DOMAIN_NAMES) ?: emptyList<String>()
 
         CoroutineScope(Dispatchers.Main).launch {
-            val succeeded = startMediaDeliverySession(serviceListEntry, clientId, responseMessenger, accessToken, domainNames)
+            val succeeded = startMediaDeliverySession(serviceListEntry, clientId, responseMessenger, accessToken, domainNames, operationPointLaunch)
             val reply = Bundle()
             reply.putString(
                 SessionHandlerBundleKeys.MEDIA_DELIVERY_SESSION_IDENTIFIER,

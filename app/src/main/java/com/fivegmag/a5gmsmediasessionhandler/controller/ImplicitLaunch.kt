@@ -119,6 +119,16 @@ class ImplicitLaunch private constructor(
             "HTTP_3" to DeliveryProtocols.HTTP_3
         )
 
+        /**
+         * Implementation choice, text silent, see CR-023 (open item O-6): clause 11.2.2.1 of TS 26.510 V19.2.0 says "if the entryPoint input
+         * parameter is provided, and indicates a Service Operation Point" without saying how a URL does that. The one syntax in the specifications
+         * by which a URL names a Service Operation Point is the service-operation-point parameter of a 3GPP Service URL (clause 6.3; TS 26.512
+         * clause 12.4), and the same clause 11.2.2.1 introduces that URL. An entryPoint that is such a URL with the parameter indicates the point;
+         * its media-entry-point (if any) is the Media Entry Point. Any other entryPoint indicates none (the URL is the Media Entry Point, as before).
+         */
+        fun indicatingServiceOperationPoint(entryPoint: String?): ImplicitLaunch? =
+            entryPoint?.let { prepare(it).launch }?.takeIf { it.serviceOperationPoint != null }
+
         /** Decomposes the URL (clause 6.3) and prepares the launch; without a launch the status is the error response for the application */
         fun prepare(serviceUrl: String): PreparedLaunch {
             val url = ServiceUrlParser.parse(serviceUrl)

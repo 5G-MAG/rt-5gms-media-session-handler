@@ -188,4 +188,22 @@ class ImplicitLaunchUnitTest {
         assertFalse(ImplicitLaunch.isConsuming(PlayerStates.UNKNOWN))
         assertTrue(ImplicitLaunch.INACTIVITY_PERIOD_MS > 0)
     }
+
+    // TS 26.510 V19.2.0 clause 11.2.2.1, "indicates a Service Operation Point": implementation choice, text silent, see CR-023 (O-6). An entryPoint
+    // of createMediaDeliverySession() indicates one when it is a 3GPP Service URL with service-operation-point; any other URL indicates none
+    @Test
+    fun anEntryPointThatIsAServiceUrlWithAServiceOperationPointIndicatesThePoint() {
+        val indicated = ImplicitLaunch.indicatingServiceOperationPoint("$base?service-operation-point=HD&media-entry-point=http://as.example.net/svc-1/manifest.mpd")
+        assertNotNull(indicated)
+        assertEquals("HD", indicated!!.serviceOperationPoint)
+        assertEquals("http://as.example.net/svc-1/manifest.mpd", indicated.mediaEntryPoint)
+    }
+
+    @Test
+    fun anEntryPointThatIndicatesNoServiceOperationPointIsLeftAsItIs() {
+        assertNull(ImplicitLaunch.indicatingServiceOperationPoint(null))
+        assertNull(ImplicitLaunch.indicatingServiceOperationPoint("http://as.example.net/svc-1/manifest.mpd"))
+        assertNull(ImplicitLaunch.indicatingServiceOperationPoint("http://as.example.net/svc-1/manifest.mpd?service-operation-point=HD"))
+        assertNull(ImplicitLaunch.indicatingServiceOperationPoint("$base?media-entry-point=http://as.example.net/svc-1/manifest.mpd"))
+    }
 }
