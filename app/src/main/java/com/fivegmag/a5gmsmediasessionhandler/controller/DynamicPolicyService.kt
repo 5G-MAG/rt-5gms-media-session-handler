@@ -244,6 +244,8 @@ class DynamicPolicyService(
      * (ERROR_UNAUTHORISED); a 400 that names policyTemplateId is the reference not being valid (ERROR_INVALID_SERVICE_OPERATION_POINT);
      * any other failure of a Background Data Transfer policy is ERROR_BACKGROUND_DATA_TRANSFER with the reason.
      */
+    // A 412 (the precondition of If-Match failed, RFC 9110 15.5.13) is an ordinary failure: no retry, no other request. Implementation choice, text
+    // silent, see CR-028 (open item O-37): clause 7.1.4.4 requires If-Match support but names no handling of the failed precondition.
     private fun refused(result: M5Result<DynamicPolicy>, reference: String, isBackgroundDataTransfer: Boolean): Nothing? {
         val reason = result.problem?.detail ?: result.problem?.title ?: result.failure ?: "HTTP status code ${result.code}"
         when {

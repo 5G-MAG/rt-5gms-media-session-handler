@@ -380,6 +380,21 @@ class DynamicPolicyServiceUnitTest {
         assertEquals(listOf(null, "\"v1\"", "\"v2\""), af.requests.map { it.ifMatch })
     }
 
+    // Implementation choices, text silent, see CR-028 (O-37, O-38): a creation carries no If-Match, and a 412 on an update is an ordinary failure
+    // (no retry, no request but the update itself)
+    @Test
+    fun aCreationCarriesNoIfMatchAndAFailedPreconditionIsAnOrdinaryFailureThatIsNotRetried() {
+        af.answer("POST", base, MediaAfDouble.Response(201, policyJson("pt-qos"), headers = mapOf("ETag" to "\"v1\"")))
+        af.answer("PUT", base + "d1", MediaAfDouble.Response(412))
+        val s = service()
+        assertNotNull(s.activate("sop-qos", null, null, "6 Mbps", null))
+        assertNull(s.activate("sop-bdt", 10L, null, "6 Mbps", null))
+        assertNotNull(s.lastFailure)
+        assertEquals(listOf("POST", "PUT"), af.requests.map { it.method })
+        assertNull(af.requests[0].ifMatch)
+        assertEquals("\"v1\"", af.requests[1].ifMatch)
+    }
+
     // RFC 9110 clause 13.1.1: a weak entity tag is not supplied; nor is one when the Media AF gave none
     @Test
     fun aWeakEntityTagOrNoneIsNotSuppliedAsIfMatch() {

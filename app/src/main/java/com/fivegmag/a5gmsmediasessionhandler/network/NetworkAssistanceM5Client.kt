@@ -17,6 +17,8 @@ class NetworkAssistanceM5Client(
     private fun <T> run(call: (String?) -> M5Result<T>): M5Result<T> =
         M5Calls.withRenewal(current, renew?.let { r -> { r()?.also { current = it } } }, call)
 
+    // No If-Match on creation. Implementation choice, text silent, see CR-028 (open item O-38): clause 7.1.4.4 names POST, but a client that creates
+    // a Network Assistance Session holds no strong entity tag of the target (the tag of the Service Access Information belongs to another resource), so none is sent.
     /** Create (clause 5.3.4.2): 201 with the Network Assistance Session that the Media AF created */
     fun create(provisioningSessionId: String, session: NetworkAssistanceSession): M5Result<NetworkAssistanceSession> =
         run { auth -> M5Calls.execute(api.create(provisioningSessionId, auth, M5Calls.body(session)), NetworkAssistanceSession::class.java) }

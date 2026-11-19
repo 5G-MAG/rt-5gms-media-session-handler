@@ -15,6 +15,8 @@ class DynamicPolicyM5Client(
     private fun <T> run(call: (String?) -> M5Result<T>): M5Result<T> =
         M5Calls.withRenewal(current, renew?.let { r -> { r()?.also { current = it } } }, call)
 
+    // No If-Match on creation. Implementation choice, text silent, see CR-028 (open item O-38): clause 7.1.4.4 names POST, but a client that creates
+    // a Dynamic Policy Instance holds no strong entity tag of the target (the tag of the Service Access Information belongs to another resource), so none is sent.
     /** Create (clause 5.3.3.2): 201 with the Dynamic Policy Instance that the Media AF created */
     fun create(provisioningSessionId: String, policy: DynamicPolicy): M5Result<DynamicPolicy> =
         run { auth -> M5Calls.execute(api.create(provisioningSessionId, auth, M5Calls.body(policy)), DynamicPolicy::class.java) }
