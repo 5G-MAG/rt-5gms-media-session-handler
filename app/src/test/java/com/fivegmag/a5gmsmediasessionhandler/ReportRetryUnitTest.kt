@@ -100,9 +100,28 @@ class ReportRetryUnitTest {
     fun theRetryDelayIsTheRetryAfterSecondsOrTheDefault() {
         assertEquals(7L, PendingReports.retryDelaySeconds("7", 30))
         assertEquals(30L, PendingReports.retryDelaySeconds(null, 30))
-        assertEquals(30L, PendingReports.retryDelaySeconds("Wed, 21 Oct 2026 07:28:00 GMT", 30))
+        assertEquals(30L, PendingReports.retryDelaySeconds("tomorrow", 30))
         assertEquals(30L, PendingReports.retryDelaySeconds("-5", 30))
         assertTrue(PendingReports.retryDelaySeconds("0", 30) == 0L)
+    }
+
+    @Test
+    fun aRetryAfterThatIsAnHttpDateIsNotTakenForTheDefault() {
+        assertEquals(0L, PendingReports.retryDelaySeconds("Wed, 21 Oct 2015 07:28:00 GMT", 30))
+        assertTrue(PendingReports.retryDelaySeconds("Fri, 31 Dec 2100 23:59:59 GMT", 30) > 3600L)
+    }
+
+    @Test
+    fun aRetryAfterThatIsAnHttpDateIsTheTimeUntilThatDate() {
+        val now = java.time.Instant.parse("2026-10-21T07:27:00Z")
+        // the three formats of RFC 9110 clause 5.6.7
+        assertEquals(60L, PendingReports.retryDelaySeconds("Wed, 21 Oct 2026 07:28:00 GMT", 30, now))
+        assertEquals(60L, PendingReports.retryDelaySeconds("Wednesday, 21-Oct-26 07:28:00 GMT", 30, now))
+        assertEquals(60L, PendingReports.retryDelaySeconds("Wed Oct 21 07:28:00 2026", 30, now))
+        // a part of a second is waited for
+        assertEquals(1L, PendingReports.retryDelaySeconds("Wed, 21 Oct 2026 07:27:01 GMT", 30, java.time.Instant.parse("2026-10-21T07:27:00.200Z")))
+        // a date that has passed means now
+        assertEquals(0L, PendingReports.retryDelaySeconds("Wed, 21 Oct 2026 07:26:00 GMT", 30, now))
     }
 
     private val invalidToken = "Bearer error=\"invalid_token\""
