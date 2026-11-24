@@ -5,6 +5,7 @@ import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmscommonlibrary.models.StreamingAccess
+import kotlin.math.abs
 import okhttp3.Headers
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -14,7 +15,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import retrofit2.Retrofit
-import kotlin.math.abs
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
@@ -25,7 +25,11 @@ class ControllerSimplificationTest {
     private val dynamicEntries =
         arrayListOf(EntryPoint("https://example.test/dynamic.mpd", ContentTypes.DASH, null))
     private val sai = ServiceAccessInformation(
-        "session", null, StreamingAccess(dynamicEntries), null, null
+        "session",
+        null,
+        StreamingAccess(dynamicEntries),
+        null,
+        null
     )
 
     @Test
@@ -81,7 +85,8 @@ class ControllerSimplificationTest {
     private fun expiresPeriod(headers: Headers): Long {
         val controller = ServiceAccessInformationController(hashMapOf(), Retrofit.Builder())
         val method = ServiceAccessInformationController::class.java.getDeclaredMethod(
-            "getPeriodFromExpiresHeader", Headers::class.java
+            "getPeriodFromExpiresHeader",
+            Headers::class.java
         )
         method.isAccessible = true
         return method.invoke(controller, headers) as Long

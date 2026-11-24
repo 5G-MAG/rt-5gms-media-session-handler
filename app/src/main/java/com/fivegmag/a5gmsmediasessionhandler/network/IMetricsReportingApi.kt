@@ -16,5 +16,4 @@ interface IMetricsReportingApi {
         @Path("metricsReportingConfigurationId") metricsReportingConfigurationId: String?,
         @Body requestBody: RequestBody?
     ): Call<Void>?
-
 }

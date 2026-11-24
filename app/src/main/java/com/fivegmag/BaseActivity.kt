@@ -4,7 +4,6 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.text.Html
-import com.google.android.gms.oss.licenses.OssLicensesMenuActivity;
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
@@ -12,7 +11,7 @@ import android.view.View
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.fivegmag.a5gmsmediasessionhandler.R
-
+import com.google.android.gms.oss.licenses.OssLicensesMenuActivity
 
 open class BaseActivity : AppCompatActivity() {
 
@@ -59,7 +58,6 @@ open class BaseActivity : AppCompatActivity() {
                 startActivity(licensesIntent)
                 return true
             }
-
         }
         return super.onOptionsItemSelected(item)
     }
@@ -73,7 +71,6 @@ open class BaseActivity : AppCompatActivity() {
     }
 
     private fun setClickListeners(dialogView: View) {
-
         val githubTextView = dialogView.findViewById<TextView>(R.id.githubLink)
         githubTextView.setOnClickListener {
             val url = getString(R.string.github_url)
@@ -115,7 +112,4 @@ open class BaseActivity : AppCompatActivity() {
         val formattedText = getString(R.string.description_text)
         textView.text = Html.fromHtml(formattedText, Html.FROM_HTML_MODE_LEGACY)
     }
-
-
-
 }

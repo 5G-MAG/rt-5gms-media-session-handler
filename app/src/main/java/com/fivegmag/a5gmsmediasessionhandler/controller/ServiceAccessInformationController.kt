@@ -10,12 +10,6 @@ import com.fivegmag.a5gmsmediasessionhandler.eventbus.ServiceAccessInformationUp
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import com.fivegmag.a5gmsmediasessionhandler.models.ServiceAccessInformationSessionData
 import com.fivegmag.a5gmsmediasessionhandler.network.IServiceAccessInformationApi
-import kotlinx.coroutines.suspendCancellableCoroutine
-import okhttp3.Headers
-import org.greenrobot.eventbus.EventBus
-import retrofit2.Call
-import retrofit2.Response
-import retrofit2.Retrofit
 import java.lang.Exception
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -26,10 +20,16 @@ import java.util.TimerTask
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.abs
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Headers
+import org.greenrobot.eventbus.EventBus
+import retrofit2.Call
+import retrofit2.Response
+import retrofit2.Retrofit
 
 class ServiceAccessInformationController(
     private val clientsSessionData: HashMap<Int, ClientSessionData>,
-    private val retrofitBuilder: Retrofit.Builder,
+    private val retrofitBuilder: Retrofit.Builder
 ) : IController {
 
     companion object {
@@ -43,7 +43,6 @@ class ServiceAccessInformationController(
         defaultServiceAccessInformationTimerInterval =
             configurationProperties.getProperty("defaultServiceAccessInformationTimerInterval")
                 .toLong()
-
     }
 
     fun setM5Endpoint(msg: Message) {
@@ -71,9 +70,7 @@ class ServiceAccessInformationController(
         }
     }
 
-    fun stopUpdateTimer(
-        clientId: Int
-    ) {
+    fun stopUpdateTimer(clientId: Int) {
         clientsSessionData[clientId]?.let { client ->
             val playbackContext = client.serviceAccessInformationSessionData
             playbackContext.requestTimer?.cancel()
@@ -119,8 +116,9 @@ class ServiceAccessInformationController(
                         provisioningSessionId
                     )
 
-
-                    continuation.resume(clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation)
+                    continuation.resume(
+                        clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation
+                    )
                 }
 
                 override fun onFailure(call: Call<ServiceAccessInformation?>, t: Throwable) {
@@ -136,7 +134,6 @@ class ServiceAccessInformationController(
             continuation.invokeOnCancellation {
                 call.cancel()
             }
-
         }
     }
 
@@ -166,7 +163,6 @@ class ServiceAccessInformationController(
                     clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation
                 )
             )
-
         }
 
         // Start the re-requesting of the Service Access Information according to the max-age header
@@ -210,16 +206,14 @@ class ServiceAccessInformationController(
                 override fun run() {
                     if (clientsSessionData[sendingUid]?.mediaDeliverySessionId != mediaDeliverySessionId ||
                         clientsSessionData[sendingUid]?.serviceAccessInformationSessionData !== playbackContext
-                    ) return
+                    ) {
+                        return
+                    }
                     val call: Call<ServiceAccessInformation>? =
-                        clientsSessionData[sendingUid]?.serviceAccessInformationSessionData?.api?.fetchServiceAccessInformation(
+                        playbackContext?.api?.fetchServiceAccessInformation(
                             provisioningSessionId,
-                            clientsSessionData[sendingUid]?.serviceAccessInformationSessionData?.responseHeaders?.get(
-                                "etag"
-                            ),
-                            clientsSessionData[sendingUid]?.serviceAccessInformationSessionData?.responseHeaders?.get(
-                                "last-modified"
-                            )
+                            playbackContext.responseHeaders?.get("etag"),
+                            playbackContext.responseHeaders?.get("last-modified")
                         )
 
                     call?.enqueue(object : retrofit2.Callback<ServiceAccessInformation?> {
@@ -229,7 +223,9 @@ class ServiceAccessInformationController(
                         ) {
                             if (clientsSessionData[sendingUid]?.mediaDeliverySessionId != mediaDeliverySessionId ||
                                 clientsSessionData[sendingUid]?.serviceAccessInformationSessionData !== playbackContext
-                            ) return
+                            ) {
+                                return
+                            }
                             processServiceAccessInformationResponse(
                                 response,
                                 sendingUid,
@@ -237,10 +233,7 @@ class ServiceAccessInformationController(
                             )
                         }
 
-                        override fun onFailure(
-                            call: Call<ServiceAccessInformation?>,
-                            t: Throwable
-                        ) {
+                        override fun onFailure(call: Call<ServiceAccessInformation?>, t: Throwable) {
                             call.cancel()
                         }
                     })
@@ -256,8 +249,8 @@ class ServiceAccessInformationController(
         defaultPeriodInSec: Long
     ): Long {
         var periodInSec: Long = defaultPeriodInSec
-        if (periodByMaxAgeHeader.toInt() != -1
-            && periodByExpiresHeader.toInt() != -1
+        if (periodByMaxAgeHeader.toInt() != -1 &&
+            periodByExpiresHeader.toInt() != -1
         ) {
             periodInSec = listOf<Long>(periodByMaxAgeHeader, periodByExpiresHeader).min()
         } else if (periodByMaxAgeHeader.toInt() != -1) {

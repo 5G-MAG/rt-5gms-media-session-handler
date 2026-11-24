@@ -10,22 +10,25 @@ import com.fivegmag.a5gmscommonlibrary.helpers.ContentTypes
 import com.fivegmag.a5gmscommonlibrary.helpers.MetricReportingSchemes
 import com.fivegmag.a5gmscommonlibrary.helpers.PlayerStates
 import com.fivegmag.a5gmscommonlibrary.helpers.SessionHandlerMessageTypes
-import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
 import com.fivegmag.a5gmscommonlibrary.models.ClientConsumptionReportingConfiguration
 import com.fivegmag.a5gmscommonlibrary.models.ClientMetricsReportingConfiguration
+import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmscommonlibrary.models.StreamingAccess
 import com.fivegmag.a5gmscommonlibrary.session.PlaybackRequest
-import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import com.fivegmag.a5gmsmediasessionhandler.controller.ServiceAccessInformationController
 import com.fivegmag.a5gmsmediasessionhandler.controller.SessionController
+import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import com.fivegmag.a5gmsmediasessionhandler.network.IServiceAccessInformationApi
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import io.mockk.verify
+import java.io.IOException
+import java.util.Properties
+import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -38,8 +41,8 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -54,9 +57,6 @@ import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
 import retrofit2.Retrofit
-import java.io.IOException
-import java.util.Properties
-import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -93,9 +93,11 @@ class MediaDeliverySessionTest {
             call
         }
         handler = IncomingMessageHandler(clients, OutgoingMessageHandler())
-        handler.initialize(Properties().apply {
-            setProperty("defaultServiceAccessInformationTimerInterval", "3600")
-        })
+        handler.initialize(
+            Properties().apply {
+                setProperty("defaultServiceAccessInformationTimerInterval", "3600")
+            }
+        )
         incoming = handler.IncomingHandler()
         registerClient(1)
         registerClient(2)
@@ -125,7 +127,10 @@ class MediaDeliverySessionTest {
 
         assertEquals(listOf(sessionId, sessionId), playbackRequests.getValue(1).map { it.mediaDeliverySessionId })
         assertNotEquals(playbackRequests.getValue(1)[0].playbackId, playbackRequests.getValue(1)[1].playbackId)
-        assertEquals("second", clients.getValue(1).serviceAccessInformationSessionData.serviceAccessInformation?.provisioningSessionId)
+        assertEquals(
+            "second",
+            clients.getValue(1).serviceAccessInformationSessionData.serviceAccessInformation?.provisioningSessionId
+        )
     }
 
     @Test
@@ -147,10 +152,14 @@ class MediaDeliverySessionTest {
         val context = clients.getValue(1).serviceAccessInformationSessionData
         ShadowLog.clear()
 
-        send(1, SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE, Bundle().apply {
-            putParcelable("serviceListEntry", ServiceListEntry("item", "Item", entryPoints("item")))
-            putString("playbackId", "missing-choice")
-        })
+        send(
+            1,
+            SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE,
+            Bundle().apply {
+                putParcelable("serviceListEntry", ServiceListEntry("item", "Item", entryPoints("item")))
+                putString("playbackId", "missing-choice")
+            }
+        )
         drain()
 
         assertNull(clients.getValue(1).mediaDeliverySessionId)
@@ -158,9 +167,11 @@ class MediaDeliverySessionTest {
         assertSame(context, clients.getValue(1).serviceAccessInformationSessionData)
         assertTrue(pendingRequests.isEmpty())
         assertTrue(playbackRequests.getValue(1).isEmpty())
-        assertTrue(ShadowLog.getLogsForTag(MediaSessionHandlerMessengerService.TAG).any {
-            it.type == Log.ERROR && it.msg == "Missing or invalid newMediaDeliverySession Boolean"
-        })
+        assertTrue(
+            ShadowLog.getLogsForTag(MediaSessionHandlerMessengerService.TAG).any {
+                it.type == Log.ERROR && it.msg == "Missing or invalid newMediaDeliverySession Boolean"
+            }
+        )
     }
 
     @Test
@@ -186,9 +197,11 @@ class MediaDeliverySessionTest {
             assertEquals(playbackId, client.playbackId)
             assertSame(context, client.serviceAccessInformationSessionData)
             assertEquals(1, pendingRequests.size)
-            assertTrue(ShadowLog.getLogsForTag(MediaSessionHandlerMessengerService.TAG).any {
-                it.type == Log.ERROR && it.msg == "Missing or invalid newMediaDeliverySession Boolean"
-            })
+            assertTrue(
+                ShadowLog.getLogsForTag(MediaSessionHandlerMessengerService.TAG).any {
+                    it.type == Log.ERROR && it.msg == "Missing or invalid newMediaDeliverySession Boolean"
+                }
+            )
         }
 
         respond(0)
@@ -215,7 +228,10 @@ class MediaDeliverySessionTest {
         send(1, SessionHandlerMessageTypes.END_MEDIA_DELIVERY_SESSION)
         assertNull(clients.getValue(1).mediaDeliverySessionId)
         assertEquals(secondId, clients.getValue(2).mediaDeliverySessionId)
-        assertEquals("two", clients.getValue(2).serviceAccessInformationSessionData.serviceAccessInformation?.provisioningSessionId)
+        assertEquals(
+            "two",
+            clients.getValue(2).serviceAccessInformationSessionData.serviceAccessInformation?.provisioningSessionId
+        )
     }
 
     @Test
@@ -228,9 +244,12 @@ class MediaDeliverySessionTest {
         val sessionId = assertNotNullAndGet(clients.getValue(1).mediaDeliverySessionId)
         assertEquals(playbackId, clients.getValue(1).playbackId)
         assertEquals(sessionId, playbackRequests.getValue(1).single().mediaDeliverySessionId)
-        assertTrue(ShadowLog.getLogsForTag(SessionController.TAG).any {
-            it.type == Log.WARN && it.msg == "No active media delivery session to continue for client: 1; starting a new one"
-        })
+        assertTrue(
+            ShadowLog.getLogsForTag(SessionController.TAG).any {
+                it.type == Log.WARN &&
+                    it.msg == "No active media delivery session to continue for client: 1; starting a new one"
+            }
+        )
     }
 
     @Test
@@ -261,7 +280,10 @@ class MediaDeliverySessionTest {
         respond(0)
 
         assertEquals(sessionId, clients.getValue(1).mediaDeliverySessionId)
-        assertEquals("current", clients.getValue(1).serviceAccessInformationSessionData.serviceAccessInformation?.provisioningSessionId)
+        assertEquals(
+            "current",
+            clients.getValue(1).serviceAccessInformationSessionData.serviceAccessInformation?.provisioningSessionId
+        )
         assertEquals(1, playbackRequests.getValue(1).size)
         assertTrue(playbackRequests.getValue(1).single().entryPoints.single().locator.endsWith("/current.mpd"))
     }
@@ -282,9 +304,13 @@ class MediaDeliverySessionTest {
     fun m5EndpointUpdateKeepsTheIdButInvalidatesPreviousResponses() {
         startPlayback(1, "old", newMediaDeliverySession = true)
         val sessionId = clients.getValue(1).mediaDeliverySessionId
-        send(1, SessionHandlerMessageTypes.SET_M5_ENDPOINT, Bundle().apply {
-            putString("m5BaseUrl", "https://example.test/m5/")
-        })
+        send(
+            1,
+            SessionHandlerMessageTypes.SET_M5_ENDPOINT,
+            Bundle().apply {
+                putString("m5BaseUrl", "https://example.test/m5/")
+            }
+        )
         respond(0)
 
         assertEquals(sessionId, clients.getValue(1).mediaDeliverySessionId)
@@ -359,11 +385,15 @@ class MediaDeliverySessionTest {
 
     @Test
     fun supersededStartDoesNotFetchSaiUsingTheNextItemsContext() {
-        send(1, SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE, Bundle().apply {
-            putParcelable("serviceListEntry", ServiceListEntry("old", "Old", entryPoints("old")))
-            putString("playbackId", "old-playback")
-            putBoolean("newMediaDeliverySession", true)
-        })
+        send(
+            1,
+            SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE,
+            Bundle().apply {
+                putParcelable("serviceListEntry", ServiceListEntry("old", "Old", entryPoints("old")))
+                putString("playbackId", "old-playback")
+                putBoolean("newMediaDeliverySession", true)
+            }
+        )
         val sessionId = clients.getValue(1).mediaDeliverySessionId
         val nextId = startPlayback(1, "next", newMediaDeliverySession = false)
 
@@ -465,21 +495,27 @@ class MediaDeliverySessionTest {
                 }
             }
         })
-        incoming.handleMessage(Message.obtain().apply {
-            what = SessionHandlerMessageTypes.REGISTER_CLIENT
-            sendingUid = clientId
-            replyTo = messenger
-        })
+        incoming.handleMessage(
+            Message.obtain().apply {
+                what = SessionHandlerMessageTypes.REGISTER_CLIENT
+                sendingUid = clientId
+                replyTo = messenger
+            }
+        )
         clients.getValue(clientId).serviceAccessInformationSessionData.api = api
     }
 
     private fun startPlayback(clientId: Int, item: String, newMediaDeliverySession: Boolean): String {
         val playbackId = UUID.randomUUID().toString()
-        send(clientId, SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE, Bundle().apply {
-            putParcelable("serviceListEntry", ServiceListEntry(item, item, entryPoints(item)))
-            putString("playbackId", playbackId)
-            putBoolean("newMediaDeliverySession", newMediaDeliverySession)
-        })
+        send(
+            clientId,
+            SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE,
+            Bundle().apply {
+                putParcelable("serviceListEntry", ServiceListEntry(item, item, entryPoints(item)))
+                putString("playbackId", playbackId)
+                putBoolean("newMediaDeliverySession", newMediaDeliverySession)
+            }
+        )
         drain()
         return playbackId
     }
@@ -488,29 +524,41 @@ class MediaDeliverySessionTest {
         val pending = pendingRequests[index]
         pending.callback.onResponse(
             pending.call,
-            Response.success(ServiceAccessInformation(
-                pending.provisioningSessionId,
-                null,
-                StreamingAccess(entryPoints(pending.provisioningSessionId)),
-                if (reporting) ClientConsumptionReportingConfiguration(
-                    arrayListOf("https://example.test/"),
-                    locationReporting = false,
-                    samplePercentage = 100f,
-                    reportingInterval = 3600,
-                    accessReporting = true
-                ) else null,
-                if (reporting) arrayListOf(ClientMetricsReportingConfiguration(
-                    metricsReportingConfigurationId = "qoe",
-                    serverAddresses = arrayListOf("https://example.test/"),
-                    scheme = MetricReportingSchemes.THREE_GPP_DASH_METRIC_REPORTING,
-                    dataNetworkName = null,
-                    reportingInterval = 3600L,
-                    samplePercentage = 100f,
-                    urlFilters = null,
-                    samplingPeriod = 1L,
-                    metrics = arrayListOf()
-                )) else null
-            ))
+            Response.success(
+                ServiceAccessInformation(
+                    pending.provisioningSessionId,
+                    null,
+                    StreamingAccess(entryPoints(pending.provisioningSessionId)),
+                    if (reporting) {
+                        ClientConsumptionReportingConfiguration(
+                            arrayListOf("https://example.test/"),
+                            locationReporting = false,
+                            samplePercentage = 100f,
+                            reportingInterval = 3600,
+                            accessReporting = true
+                        )
+                    } else {
+                        null
+                    },
+                    if (reporting) {
+                        arrayListOf(
+                            ClientMetricsReportingConfiguration(
+                                metricsReportingConfigurationId = "qoe",
+                                serverAddresses = arrayListOf("https://example.test/"),
+                                scheme = MetricReportingSchemes.THREE_GPP_DASH_METRIC_REPORTING,
+                                dataNetworkName = null,
+                                reportingInterval = 3600L,
+                                samplePercentage = 100f,
+                                urlFilters = null,
+                                samplingPeriod = 1L,
+                                metrics = arrayListOf()
+                            )
+                        )
+                    } else {
+                        null
+                    }
+                )
+            )
         )
         drain()
     }
@@ -519,19 +567,25 @@ class MediaDeliverySessionTest {
         arrayListOf(EntryPoint("https://example.test/$item.mpd", ContentTypes.DASH, null))
 
     private fun sendStatus(clientId: Int, state: String, playbackId: String? = clients[clientId]?.playbackId) {
-        send(clientId, SessionHandlerMessageTypes.STATUS_MESSAGE, Bundle().apply {
-            putString("playbackState", state)
-            putString("playbackId", playbackId)
-        })
+        send(
+            clientId,
+            SessionHandlerMessageTypes.STATUS_MESSAGE,
+            Bundle().apply {
+                putString("playbackState", state)
+                putString("playbackId", playbackId)
+            }
+        )
     }
 
     private fun send(clientId: Int, type: Int, bundle: Bundle = Bundle()) {
-        incoming.handleMessage(Message.obtain().apply {
-            what = type
-            sendingUid = clientId
-            replyTo = clients[clientId]?.messenger
-            data = bundle
-        })
+        incoming.handleMessage(
+            Message.obtain().apply {
+                what = type
+                sendingUid = clientId
+                replyTo = clients[clientId]?.messenger
+                data = bundle
+            }
+        )
     }
 
     private fun <T> assertNotNullAndGet(value: T?): T {

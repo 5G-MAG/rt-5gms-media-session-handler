@@ -8,9 +8,7 @@ import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import java.util.UUID
 
-class SessionController(
-    private val clientsSessionData: HashMap<Int, ClientSessionData>,
-) : IController {
+class SessionController(private val clientsSessionData: HashMap<Int, ClientSessionData>) : IController {
 
     companion object {
         const val TAG = "5GMS-SessionController"
@@ -63,5 +61,4 @@ class SessionController(
             resetClientSession(clientId)
         }
     }
-
 }
