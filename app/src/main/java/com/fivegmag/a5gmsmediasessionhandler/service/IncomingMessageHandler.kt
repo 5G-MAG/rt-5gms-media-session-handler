@@ -15,13 +15,13 @@ import com.fivegmag.a5gmsmediasessionhandler.controller.ServiceAccessInformation
 import com.fivegmag.a5gmsmediasessionhandler.controller.SessionController
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import com.fivegmag.a5gmsmediasessionhandler.network.HeaderInterceptor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import java.io.IOException
 import java.util.Properties
 
 class IncomingMessageHandler(
@@ -138,6 +138,8 @@ class IncomingMessageHandler(
 
     private fun handlePlaybackStateEnded(clientId: Int) {
         sessionController.resetPlayback(clientId)
+        // The playback is over; later status messages must not restart its reporting.
+        clientsSessionData[clientId]?.playbackId = null
         consumptionReportingController.stopReportingTimer(
             clientId
         )
@@ -188,9 +190,11 @@ class IncomingMessageHandler(
                     clientId,
                     mediaDeliverySessionId
                 )
-            } catch (e: IOException) {
-                Log.e(TAG, "Failed to fetch Service Access Information for playback $playbackId", e)
-                return@launch
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch Service Access Information for playback $playbackId; using entry points from the ServiceListEntry", e)
+                null
             }
             if (clientsSessionData[clientId]?.mediaDeliverySessionId != mediaDeliverySessionId ||
                 clientsSessionData[clientId]?.serviceAccessInformationSessionData !== playbackContext
@@ -231,7 +235,9 @@ class IncomingMessageHandler(
     }
 
     private fun handleSetM5Endpoint(msg: Message) {
-        resetPlayback(msg.sendingUid)
+        if (msg.data.getString("m5BaseUrl") != null) {
+            resetPlayback(msg.sendingUid)
+        }
         serviceAccessInformationController.setM5Endpoint(msg)
     }
 

@@ -393,16 +393,52 @@ class MediaDeliverySessionTest {
     }
 
     @Test
-    fun networkFailureAbortsTheRequestWithoutCrashingAndAllowsAnotherStart() {
-        startPlayback(1, "offline", newMediaDeliverySession = true)
+    fun networkFailureFallsBackToStaticEntryPointsAndAllowsAnotherStart() {
+        val offlineId = startPlayback(1, "offline", newMediaDeliverySession = true)
         val failed = pendingRequests.single()
         failed.callback.onFailure(failed.call, IOException("Network unavailable"))
         drain()
-        assertTrue(playbackRequests.getValue(1).isEmpty())
+        assertEquals(offlineId, playbackRequests.getValue(1).single().playbackId)
+        assertEquals(entryPoints("offline"), playbackRequests.getValue(1).single().entryPoints)
 
         val nextId = startPlayback(1, "online", newMediaDeliverySession = true)
         respond(1)
-        assertEquals(nextId, playbackRequests.getValue(1).single().playbackId)
+        assertEquals(nextId, playbackRequests.getValue(1).last().playbackId)
+    }
+
+    @Test
+    fun malformedSaiResponseDoesNotCrashAndFallsBackToStaticEntryPoints() {
+        val playbackId = startPlayback(1, "malformed", newMediaDeliverySession = true)
+        val failed = pendingRequests.single()
+        failed.callback.onFailure(failed.call, com.google.gson.JsonSyntaxException("Malformed SAI"))
+        drain()
+        assertEquals(playbackId, playbackRequests.getValue(1).single().playbackId)
+    }
+
+    @Test
+    fun readyAfterEndedDoesNotRestartReporting() {
+        startPlayback(1, "item", newMediaDeliverySession = true)
+        respond(0, reporting = true)
+        val playbackId = clients.getValue(1).playbackId
+        sendStatus(1, PlayerStates.READY, playbackId)
+        sendStatus(1, PlayerStates.ENDED, playbackId)
+        sendStatus(1, PlayerStates.READY, playbackId)
+
+        val client = clients.getValue(1)
+        assertNull(client.playbackId)
+        assertFalse(client.initializedSession)
+        assertNull(client.consumptionReportingSessionData.reportingTimer)
+        assertNull(client.qoeMetricsReportingSessionData.getValue("qoe").reportingTimer)
+    }
+
+    @Test
+    fun m5EndpointWithoutUrlKeepsTheCurrentPlayback() {
+        val playbackId = startPlayback(1, "item", newMediaDeliverySession = true)
+        send(1, SessionHandlerMessageTypes.SET_M5_ENDPOINT)
+        respond(0)
+
+        assertEquals(playbackId, clients.getValue(1).playbackId)
+        assertEquals(playbackId, playbackRequests.getValue(1).single().playbackId)
     }
 
     @Test
