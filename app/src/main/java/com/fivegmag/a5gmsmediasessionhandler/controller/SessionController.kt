@@ -1,6 +1,7 @@
 package com.fivegmag.a5gmsmediasessionhandler.controller
 
 import android.os.Message
+import android.util.Log
 import com.fivegmag.a5gmscommonlibrary.models.EntryPoint
 import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 import com.fivegmag.a5gmscommonlibrary.models.ServiceListEntry
@@ -37,9 +38,9 @@ class SessionController(
     fun startMediaDeliverySession(clientId: Int, newMediaDeliverySession: Boolean): String {
         val client = requireNotNull(clientsSessionData[clientId]) { "Client is not registered: $clientId" }
         if (!newMediaDeliverySession) {
-            return requireNotNull(client.mediaDeliverySessionId) {
-                "No active media delivery session to continue for client: $clientId"
-            }
+            client.mediaDeliverySessionId?.let { return it }
+            // E.g. after a service restart or END_MEDIA_DELIVERY_SESSION; without a fallback the client never gets TRIGGER_PLAYBACK.
+            Log.w(TAG, "No active media delivery session to continue for client: $clientId; starting a new one")
         }
         return UUID.randomUUID().toString().also { client.mediaDeliverySessionId = it }
     }

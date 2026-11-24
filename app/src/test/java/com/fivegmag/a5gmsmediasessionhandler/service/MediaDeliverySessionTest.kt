@@ -19,6 +19,7 @@ import com.fivegmag.a5gmscommonlibrary.models.StreamingAccess
 import com.fivegmag.a5gmscommonlibrary.session.PlaybackRequest
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import com.fivegmag.a5gmsmediasessionhandler.controller.ServiceAccessInformationController
+import com.fivegmag.a5gmsmediasessionhandler.controller.SessionController
 import com.fivegmag.a5gmsmediasessionhandler.network.IServiceAccessInformationApi
 import io.mockk.every
 import io.mockk.mockk
@@ -218,24 +219,22 @@ class MediaDeliverySessionTest {
     }
 
     @Test
-    fun continuingWithoutASessionIsRejectedWithoutAllocatingAnId() {
-        val context = clients.getValue(1).serviceAccessInformationSessionData
+    fun continuingWithoutASessionStartsANewOneAndWarns() {
         ShadowLog.clear()
 
-        startPlayback(1, "first", newMediaDeliverySession = false)
+        val playbackId = startPlayback(1, "first", newMediaDeliverySession = false)
+        respond(0)
 
-        assertNull(clients.getValue(1).mediaDeliverySessionId)
-        assertNull(clients.getValue(1).playbackId)
-        assertSame(context, clients.getValue(1).serviceAccessInformationSessionData)
-        assertTrue(pendingRequests.isEmpty())
-        assertTrue(playbackRequests.getValue(1).isEmpty())
-        assertTrue(ShadowLog.getLogsForTag(MediaSessionHandlerMessengerService.TAG).any {
-            it.type == Log.ERROR && it.msg == "No active media delivery session to continue for client: 1"
+        val sessionId = assertNotNullAndGet(clients.getValue(1).mediaDeliverySessionId)
+        assertEquals(playbackId, clients.getValue(1).playbackId)
+        assertEquals(sessionId, playbackRequests.getValue(1).single().mediaDeliverySessionId)
+        assertTrue(ShadowLog.getLogsForTag(SessionController.TAG).any {
+            it.type == Log.WARN && it.msg == "No active media delivery session to continue for client: 1; starting a new one"
         })
     }
 
     @Test
-    fun continuingAfterExplicitEndRequiresAnExplicitNewSession() {
+    fun continuingAfterExplicitEndStartsANewSession() {
         startPlayback(1, "first", newMediaDeliverySession = true)
         respond(0)
         val oldId = clients.getValue(1).mediaDeliverySessionId
@@ -244,21 +243,13 @@ class MediaDeliverySessionTest {
         assertNull(clients.getValue(1).mediaDeliverySessionId)
         assertNull(clients.getValue(1).serviceAccessInformationSessionData.serviceAccessInformation)
         assertFalse(clients.getValue(1).initializedSession)
-        ShadowLog.clear()
         startPlayback(1, "second", newMediaDeliverySession = false)
-
-        assertNull(clients.getValue(1).mediaDeliverySessionId)
-        assertNull(clients.getValue(1).playbackId)
-        assertEquals(1, pendingRequests.size)
-        assertEquals(1, playbackRequests.getValue(1).size)
-        assertTrue(ShadowLog.getLogsForTag(MediaSessionHandlerMessengerService.TAG).any {
-            it.type == Log.ERROR && it.msg == "No active media delivery session to continue for client: 1"
-        })
-
-        startPlayback(1, "second", newMediaDeliverySession = true)
         respond(1)
 
-        assertNotEquals(oldId, clients.getValue(1).mediaDeliverySessionId)
+        val newId = clients.getValue(1).mediaDeliverySessionId
+        assertNotNull(newId)
+        assertNotEquals(oldId, newId)
+        assertEquals(newId, playbackRequests.getValue(1).last().mediaDeliverySessionId)
     }
 
     @Test
@@ -541,6 +532,11 @@ class MediaDeliverySessionTest {
             replyTo = clients[clientId]?.messenger
             data = bundle
         })
+    }
+
+    private fun <T> assertNotNullAndGet(value: T?): T {
+        assertNotNull(value)
+        return value!!
     }
 
     private fun drain() {
