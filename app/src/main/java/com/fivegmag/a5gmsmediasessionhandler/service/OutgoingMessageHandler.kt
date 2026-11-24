@@ -6,7 +6,7 @@ import android.os.Messenger
 import android.os.RemoteException
 import android.util.Log
 
-class OutgoingMessageHandler() {
+class OutgoingMessageHandler {
 
     private var nativeIncomingMessenger: Messenger? = null
 
@@ -49,5 +49,4 @@ class OutgoingMessageHandler() {
     fun reset() {
         nativeIncomingMessenger = null
     }
-
 }

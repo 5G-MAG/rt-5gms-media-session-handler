@@ -15,6 +15,7 @@ import com.fivegmag.a5gmsmediasessionhandler.controller.ServiceAccessInformation
 import com.fivegmag.a5gmsmediasessionhandler.controller.SessionController
 import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import com.fivegmag.a5gmsmediasessionhandler.network.HeaderInterceptor
+import java.util.Properties
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +23,6 @@ import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import java.util.Properties
 
 class IncomingMessageHandler(
     private val clientsSessionData: HashMap<Int, ClientSessionData>,
@@ -33,7 +33,6 @@ class IncomingMessageHandler(
         const val TAG = "5GMS-IncomingMessageHandler"
     }
 
-
     private val headerInterceptor = HeaderInterceptor()
     private val okHttpClient = OkHttpClient()
         .newBuilder()
@@ -43,15 +42,14 @@ class IncomingMessageHandler(
         .addConverterFactory(GsonConverterFactory.create())
         .client(okHttpClient)
     private lateinit var consumptionReportingController:
-            ConsumptionReportingController
+        ConsumptionReportingController
     private lateinit var qoeMetricsReportingController:
-            QoeMetricsReportingController
+        QoeMetricsReportingController
     private lateinit var serviceAccessInformationController: ServiceAccessInformationController
     private lateinit var sessionController: SessionController
     private val incomingMessenger = Messenger(IncomingHandler())
 
-    inner class IncomingHandler(
-    ) : Handler() {
+    inner class IncomingHandler : Handler() {
 
         override fun handleMessage(msg: Message) {
             try {
@@ -64,9 +62,8 @@ class IncomingMessageHandler(
 
                     SessionHandlerMessageTypes.STATUS_MESSAGE -> handleStatusMessage(msg)
 
-                    SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE -> handleStartPlaybackByServiceListEntryMessage(
-                        msg
-                    )
+                    SessionHandlerMessageTypes.START_PLAYBACK_BY_SERVICE_LIST_ENTRY_MESSAGE ->
+                        handleStartPlaybackByServiceListEntryMessage(msg)
 
                     SessionHandlerMessageTypes.SET_M5_ENDPOINT -> handleSetM5Endpoint(msg)
 
@@ -193,12 +190,18 @@ class IncomingMessageHandler(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to fetch Service Access Information for playback $playbackId; using entry points from the ServiceListEntry", e)
+                Log.e(
+                    TAG,
+                    "Failed to fetch Service Access Information for playback $playbackId; using entry points from the ServiceListEntry",
+                    e
+                )
                 null
             }
             if (clientsSessionData[clientId]?.mediaDeliverySessionId != mediaDeliverySessionId ||
                 clientsSessionData[clientId]?.serviceAccessInformationSessionData !== playbackContext
-            ) return@launch
+            ) {
+                return@launch
+            }
 
             val finalEntryPoints = sessionController.getFinalEntryPoints(serviceListEntry, serviceAccessInformation)
 
@@ -249,9 +252,7 @@ class IncomingMessageHandler(
         qoeMetricsReportingController.handleQoeMetricsReportMessage(msg)
     }
 
-    fun getIncomingMessenger(): Messenger {
-        return incomingMessenger
-    }
+    fun getIncomingMessenger(): Messenger = incomingMessenger
 
     fun initialize(configurationProperties: Properties) {
         consumptionReportingController =

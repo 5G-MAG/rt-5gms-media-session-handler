@@ -24,7 +24,6 @@ class MediaSessionHandlerMessengerService : Service() {
     private val incomingMessageHandler =
         IncomingMessageHandler(clientsSessionData, outgoingMessageHandler)
 
-
     /**
      * When binding to the service, we return an interface to our messenger
      * for sending messages to the service. To create a bound service, you must define the interface that specifies
@@ -45,9 +44,7 @@ class MediaSessionHandlerMessengerService : Service() {
         return super.onUnbind(intent)
     }
 
-    private fun loadConfiguration() : Properties{
-        return Utils().loadConfiguration(this.assets, "config.properties.xml")
-    }
+    private fun loadConfiguration(): Properties = Utils().loadConfiguration(this.assets, "config.properties.xml")
 
     private fun reset() {
         incomingMessageHandler.reset()

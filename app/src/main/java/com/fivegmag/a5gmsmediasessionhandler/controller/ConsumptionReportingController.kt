@@ -13,6 +13,8 @@ import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import com.fivegmag.a5gmsmediasessionhandler.models.ConsumptionReportingSessionData
 import com.fivegmag.a5gmsmediasessionhandler.network.IConsumptionReportingApi
 import com.fivegmag.a5gmsmediasessionhandler.service.OutgoingMessageHandler
+import java.util.Timer
+import java.util.TimerTask
 import okhttp3.MediaType
 import okhttp3.RequestBody
 import org.greenrobot.eventbus.Subscribe
@@ -20,32 +22,27 @@ import org.greenrobot.eventbus.ThreadMode
 import retrofit2.Call
 import retrofit2.Response
 import retrofit2.Retrofit
-import java.util.Timer
-import java.util.TimerTask
 
 class ConsumptionReportingController(
     clientsSessionData: HashMap<Int, ClientSessionData>,
     private val retrofitBuilder: Retrofit.Builder,
     private val outgoingMessageHandler: OutgoingMessageHandler
-) :
-    ReportingController(
-        clientsSessionData
-    ) {
+) : ReportingController(
+    clientsSessionData
+) {
 
     companion object {
         const val TAG = "5GMS-ConsumptionReportingController"
     }
 
-    fun handleConsumptionReportMessage(
-        msg: Message
-    ) {
+    fun handleConsumptionReportMessage(msg: Message) {
         val bundle: Bundle = msg.data
         val consumptionReport: String? =
             bundle.getString("consumptionReport")
         val clientId = msg.sendingUid
 
-        if (clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientConsumptionReportingConfiguration == null
-            || clientsSessionData[clientId]?.consumptionReportingSessionData?.api == null
+        if (getClientConsumptionReportingConfiguration(clientId) == null ||
+            clientsSessionData[clientId]?.consumptionReportingSessionData?.api == null
         ) {
             return
         }
@@ -97,7 +94,7 @@ class ConsumptionReportingController(
         clientsSessionData[clientId]?.consumptionReportingSessionData?.reportingSelectedServerAddress =
             null
         val clientConsumptionReportingConfiguration: ClientConsumptionReportingConfiguration? =
-            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientConsumptionReportingConfiguration
+            getClientConsumptionReportingConfiguration(clientId)
 
         val serverAddress = clientConsumptionReportingConfiguration?.let {
             selectReportingEndpoint(
@@ -114,10 +111,7 @@ class ConsumptionReportingController(
         }
     }
 
-    override fun initializeReportingTimer(
-        clientId: Int,
-        delay: Long?
-    ) {
+    override fun initializeReportingTimer(clientId: Int, delay: Long?) {
         setReportingEndpoint(clientId)
 
         // Do not start the consumption reporting timer if we dont have an endpoint
@@ -126,7 +120,7 @@ class ConsumptionReportingController(
         }
 
         val clientConsumptionReportingConfiguration: ClientConsumptionReportingConfiguration? =
-            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientConsumptionReportingConfiguration
+            getClientConsumptionReportingConfiguration(clientId)
 
         if (clientConsumptionReportingConfiguration?.reportingInterval != null &&
             clientConsumptionReportingConfiguration.reportingInterval!! > 0 &&
@@ -136,11 +130,7 @@ class ConsumptionReportingController(
         }
     }
 
-    private fun startReportingTimer(
-        clientId: Int,
-        delay: Long? = null
-    ) {
-
+    private fun startReportingTimer(clientId: Int, delay: Long? = null) {
         // Endpoint not set
         if (clientsSessionData[clientId]?.consumptionReportingSessionData?.api == null) {
             setReportingEndpoint(clientId)
@@ -152,7 +142,7 @@ class ConsumptionReportingController(
         }
 
         val clientConsumptionReportingConfiguration: ClientConsumptionReportingConfiguration =
-            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientConsumptionReportingConfiguration
+            getClientConsumptionReportingConfiguration(clientId)
                 ?: return
         val timer = Timer()
         val reportingInterval =
@@ -175,14 +165,12 @@ class ConsumptionReportingController(
         clientsSessionData[clientId]?.consumptionReportingSessionData?.reportingTimer = timer
     }
 
-    fun requestConsumptionReportFromClient(
-        clientId: Int
-    ) {
+    fun requestConsumptionReportFromClient(clientId: Int) {
         val bundle = Bundle()
         val locationReporting =
-            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientConsumptionReportingConfiguration?.locationReporting == true
+            getClientConsumptionReportingConfiguration(clientId)?.locationReporting == true
         val accessReporting =
-            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientConsumptionReportingConfiguration?.accessReporting == true
+            getClientConsumptionReportingConfiguration(clientId)?.accessReporting == true
         val consumptionRequest =
             ConsumptionRequest(accessReporting, locationReporting)
         bundle.putParcelable(
@@ -204,18 +192,26 @@ class ConsumptionReportingController(
         serviceAccessInformationUpdatedEvent: ServiceAccessInformationUpdatedEvent
     ) {
         val previousClientConsumptionReportingConfiguration =
-            serviceAccessInformationUpdatedEvent.previousServiceAccessInformation?.clientConsumptionReportingConfiguration
+            serviceAccessInformationUpdatedEvent.previousServiceAccessInformation
+                ?.clientConsumptionReportingConfiguration
         val updatedClientConsumptionReportingConfiguration =
-            serviceAccessInformationUpdatedEvent.updatedServiceAccessInformation?.clientConsumptionReportingConfiguration
+            serviceAccessInformationUpdatedEvent.updatedServiceAccessInformation
+                ?.clientConsumptionReportingConfiguration
 
-        if (previousClientConsumptionReportingConfiguration == null || updatedClientConsumptionReportingConfiguration == null) {
+        if (previousClientConsumptionReportingConfiguration == null ||
+            updatedClientConsumptionReportingConfiguration == null
+        ) {
             return
         }
 
         val clientId = serviceAccessInformationUpdatedEvent.clientId
 
         // location or access reporting has changed update the representation in the Media Stream Handler
-        if (previousClientConsumptionReportingConfiguration.accessReporting != updatedClientConsumptionReportingConfiguration.accessReporting || previousClientConsumptionReportingConfiguration.locationReporting != updatedClientConsumptionReportingConfiguration.locationReporting) {
+        if (previousClientConsumptionReportingConfiguration.accessReporting !=
+            updatedClientConsumptionReportingConfiguration.accessReporting ||
+            previousClientConsumptionReportingConfiguration.locationReporting !=
+            updatedClientConsumptionReportingConfiguration.locationReporting
+        ) {
             updatePlaybackConsumptionReportingConfiguration(
                 clientId,
                 updatedClientConsumptionReportingConfiguration
@@ -250,7 +246,9 @@ class ConsumptionReportingController(
         }
 
         // if sample percentage was previously zero and is now higher than zero evaluate again
-        if (updatedClientConsumptionReportingConfiguration.samplePercentage > 0 && previousClientConsumptionReportingConfiguration.samplePercentage <= 0 && shouldReportAccordingToSamplePercentage(
+        if (updatedClientConsumptionReportingConfiguration.samplePercentage > 0 &&
+            previousClientConsumptionReportingConfiguration.samplePercentage <= 0 &&
+            shouldReportAccordingToSamplePercentage(
                 updatedClientConsumptionReportingConfiguration.samplePercentage
             )
         ) {
@@ -285,6 +283,10 @@ class ConsumptionReportingController(
         }
     }
 
+    private fun getClientConsumptionReportingConfiguration(clientId: Int): ClientConsumptionReportingConfiguration? =
+        clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation
+            ?.clientConsumptionReportingConfiguration
+
     override fun resetClientSession(clientId: Int) {
         stopReportingTimer(clientId)
         clientsSessionData[clientId]?.consumptionReportingSessionData =
@@ -297,9 +299,7 @@ class ConsumptionReportingController(
         }
     }
 
-    override fun stopReportingTimer(
-        clientId: Int
-    ) {
+    override fun stopReportingTimer(clientId: Int) {
         if (clientsSessionData[clientId]?.consumptionReportingSessionData?.reportingTimer != null) {
             clientsSessionData[clientId]?.consumptionReportingSessionData?.reportingTimer?.cancel()
             clientsSessionData[clientId]?.consumptionReportingSessionData?.reportingTimer = null

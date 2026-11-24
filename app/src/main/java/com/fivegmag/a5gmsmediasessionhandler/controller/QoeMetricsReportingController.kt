@@ -14,6 +14,9 @@ import com.fivegmag.a5gmsmediasessionhandler.models.ClientSessionData
 import com.fivegmag.a5gmsmediasessionhandler.models.QoeMetricsReportingSessionDataEntry
 import com.fivegmag.a5gmsmediasessionhandler.network.IMetricsReportingApi
 import com.fivegmag.a5gmsmediasessionhandler.service.OutgoingMessageHandler
+import java.util.Timer
+import java.util.TimerTask
+import kotlin.collections.ArrayList
 import okhttp3.MediaType
 import okhttp3.RequestBody
 import org.greenrobot.eventbus.Subscribe
@@ -21,31 +24,28 @@ import org.greenrobot.eventbus.ThreadMode
 import retrofit2.Call
 import retrofit2.Response
 import retrofit2.Retrofit
-import java.util.Timer
-import java.util.TimerTask
-import kotlin.collections.ArrayList
 
 class QoeMetricsReportingController(
     clientsSessionData: HashMap<Int, ClientSessionData>,
     private val retrofitBuilder: Retrofit.Builder,
     private val outgoingMessageHandler: OutgoingMessageHandler
-) :
-    ReportingController(clientsSessionData) {
+) : ReportingController(clientsSessionData) {
 
     companion object {
         const val TAG = "5GMS-QoeMetricsReportingController"
     }
 
-    fun initializeReporting(
-        clientId: Int,
-        serviceAccessInformation: ServiceAccessInformation
-    ) {
-        if (serviceAccessInformation.clientMetricsReportingConfigurations != null && serviceAccessInformation.clientMetricsReportingConfigurations!!.size > 0) {
-            for (clientMetricsReportingConfiguration in serviceAccessInformation.clientMetricsReportingConfigurations!!)
+    fun initializeReporting(clientId: Int, serviceAccessInformation: ServiceAccessInformation) {
+        if (serviceAccessInformation.clientMetricsReportingConfigurations != null &&
+            serviceAccessInformation.clientMetricsReportingConfigurations!!.size > 0
+        ) {
+            val clientMetricsReportingConfigurations = serviceAccessInformation.clientMetricsReportingConfigurations!!
+            for (clientMetricsReportingConfiguration in clientMetricsReportingConfigurations) {
                 clientsSessionData[clientId]?.qoeMetricsReportingSessionData?.set(
                     clientMetricsReportingConfiguration.metricsReportingConfigurationId,
                     QoeMetricsReportingSessionDataEntry()
                 )
+            }
         }
     }
 
@@ -70,7 +70,7 @@ class QoeMetricsReportingController(
                 clientMetricsReportingConfiguration.samplingPeriod,
                 clientMetricsReportingConfiguration.reportingInterval,
                 clientMetricsReportingConfiguration.metrics,
-                clientMetricsReportingConfiguration.metricsReportingConfigurationId,
+                clientMetricsReportingConfiguration.metricsReportingConfigurationId
             )
             qoeMetricsRequests.add(qoeMetricsRequest)
         }
@@ -85,8 +85,7 @@ class QoeMetricsReportingController(
             bundle.getParcelable("qoeMetricsResponse")
         val clientId = msg.sendingUid
 
-        if (clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientMetricsReportingConfigurations == null
-        ) {
+        if (getClientMetricsReportingConfigurations(clientId) == null) {
             return
         }
 
@@ -94,7 +93,10 @@ class QoeMetricsReportingController(
         val metricsReportingConfigurationId =
             playbackMetricsResponse?.metricsReportingConfigurationId
         val clientMetricsReportingConfiguration =
-            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientMetricsReportingConfigurations?.find { it.metricsReportingConfigurationId == metricsReportingConfigurationId }
+            getClientMetricsReportingConfigurations(clientId)?.find {
+                it.metricsReportingConfigurationId ==
+                    metricsReportingConfigurationId
+            }
                 ?: return
 
         if (clientMetricsReportingConfiguration.samplePercentage!! <= 0) {
@@ -131,12 +133,11 @@ class QoeMetricsReportingController(
                 Log.d(TAG, "Error sending metrics report")
             }
         })
-
     }
 
     override fun initializeReportingTimer(clientId: Int, delay: Long?) {
         val clientMetricsReportingConfigurations: ArrayList<ClientMetricsReportingConfiguration> =
-            clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation?.clientMetricsReportingConfigurations
+            getClientMetricsReportingConfigurations(clientId)
                 ?: return
 
         for (clientMetricsReportingConfiguration in clientMetricsReportingConfigurations) {
@@ -175,12 +176,10 @@ class QoeMetricsReportingController(
         delay: Long? = null,
         clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration
     ) {
-
         val qoeMetricsReportingSessionDataEntry = getQoeMetricsReportingSessionDataEntry(
             clientId,
             clientMetricsReportingConfiguration.metricsReportingConfigurationId
         ) ?: return
-
 
         // Endpoint not set
         if (qoeMetricsReportingSessionDataEntry.api == null) {
@@ -219,12 +218,9 @@ class QoeMetricsReportingController(
     private fun getQoeMetricsReportingSessionDataEntry(
         clientId: Int,
         metricsReportingConfigurationId: String
-    ): QoeMetricsReportingSessionDataEntry? {
-        return clientsSessionData[clientId]?.qoeMetricsReportingSessionData?.get(
-            metricsReportingConfigurationId
-        )
-    }
-
+    ): QoeMetricsReportingSessionDataEntry? = clientsSessionData[clientId]?.qoeMetricsReportingSessionData?.get(
+        metricsReportingConfigurationId
+    )
 
     private fun setReportingEndpoint(
         clientId: Int,
@@ -253,17 +249,15 @@ class QoeMetricsReportingController(
         }
     }
 
-    private fun shouldReport(clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration): Boolean {
-        return clientMetricsReportingConfiguration.reportingInterval != null &&
-                clientMetricsReportingConfiguration.reportingInterval!! > 0 &&
-                shouldReportAccordingToSamplePercentage(clientMetricsReportingConfiguration.samplePercentage)
-    }
+    private fun shouldReport(clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration): Boolean =
+        clientMetricsReportingConfiguration.reportingInterval != null &&
+            clientMetricsReportingConfiguration.reportingInterval!! > 0 &&
+            shouldReportAccordingToSamplePercentage(clientMetricsReportingConfiguration.samplePercentage)
 
     private fun requestMetricsForSchemeFromClient(
         clientId: Int,
         clientMetricsReportingConfiguration: ClientMetricsReportingConfiguration
     ) {
-
         val qoeMetricsRequest =
             QoeMetricsRequest(
                 clientMetricsReportingConfiguration.scheme,
@@ -289,13 +283,17 @@ class QoeMetricsReportingController(
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
-    override fun handleServiceAccessInformationChanges(serviceAccessInformationUpdatedEvent: ServiceAccessInformationUpdatedEvent) {
+    override fun handleServiceAccessInformationChanges(
+        serviceAccessInformationUpdatedEvent: ServiceAccessInformationUpdatedEvent
+    ) {
         val previousClientMetricsReportingConfigurations =
             serviceAccessInformationUpdatedEvent.previousServiceAccessInformation?.clientMetricsReportingConfigurations
         val updatedClientMetricsReportingConfigurations =
             serviceAccessInformationUpdatedEvent.updatedServiceAccessInformation?.clientMetricsReportingConfigurations
 
-        if (previousClientMetricsReportingConfigurations == null || updatedClientMetricsReportingConfigurations == null) {
+        if (previousClientMetricsReportingConfigurations == null ||
+            updatedClientMetricsReportingConfigurations == null
+        ) {
             return
         }
 
@@ -312,7 +310,6 @@ class QoeMetricsReportingController(
             clientId,
             updatedClientMetricsReportingConfigurations
         )
-
     }
 
     private fun handleNoReportingConfigurations(
@@ -343,7 +340,9 @@ class QoeMetricsReportingController(
         }
     }
 
-    private fun resetSingleQoeMetricsReportingSession(qoeMetricsReportingSessionDataEntry: QoeMetricsReportingSessionDataEntry) {
+    private fun resetSingleQoeMetricsReportingSession(
+        qoeMetricsReportingSessionDataEntry: QoeMetricsReportingSessionDataEntry
+    ) {
         qoeMetricsReportingSessionDataEntry.reportingTimer?.cancel()
     }
 
@@ -351,7 +350,6 @@ class QoeMetricsReportingController(
         clientId: Int,
         updatedClientMetricsReportingConfigurations: ArrayList<ClientMetricsReportingConfiguration>
     ) {
-
         for (updatedConfiguration in updatedClientMetricsReportingConfigurations) {
             val qoeMetricsReportingSessionDataEntry =
                 clientsSessionData[clientId]?.qoeMetricsReportingSessionData?.get(
@@ -379,15 +377,19 @@ class QoeMetricsReportingController(
             if (updatedConfiguration.samplePercentage!! >= 100 && qoeMetricsReportingSessionDataEntry != null) {
                 startSingleReportingTimer(clientId, 0, updatedConfiguration)
             }
-
         }
-
     }
 
     private fun stopSingleReportingTimer(qoeMetricsReportingSessionDataEntry: QoeMetricsReportingSessionDataEntry) {
         qoeMetricsReportingSessionDataEntry.reportingTimer?.cancel()
         qoeMetricsReportingSessionDataEntry.reportingTimer = null
     }
+
+    private fun getClientMetricsReportingConfigurations(
+        clientId: Int
+    ): ArrayList<ClientMetricsReportingConfiguration>? =
+        clientsSessionData[clientId]?.serviceAccessInformationSessionData?.serviceAccessInformation
+            ?.clientMetricsReportingConfigurations
 
     override fun resetClientSession(clientId: Int) {
         stopReportingTimer(clientId)
@@ -408,5 +410,4 @@ class QoeMetricsReportingController(
             stopSingleReportingTimer(qoeMetricsReportingSessionDataEntry)
         }
     }
-
 }

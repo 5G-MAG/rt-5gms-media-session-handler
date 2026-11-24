@@ -5,5 +5,5 @@ import com.fivegmag.a5gmscommonlibrary.models.ServiceAccessInformation
 class ServiceAccessInformationUpdatedEvent(
     val clientId: Int,
     val previousServiceAccessInformation: ServiceAccessInformation?,
-    val updatedServiceAccessInformation: ServiceAccessInformation?,
+    val updatedServiceAccessInformation: ServiceAccessInformation?
 )
